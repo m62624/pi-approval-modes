@@ -1,12 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock analysis module
-const mockAnalyze = vi.fn();
-vi.mock("../src/analysis.js", () => ({
-	analyzeBashCommand: (...args: any[]) => mockAnalyze(...args),
-}));
-
-// Mock fs
+// Mock fs - loadConfig will return defaults
 vi.mock("node:fs", () => ({
 	existsSync: vi.fn(() => false),
 	readFileSync: vi.fn(() => { throw new Error("not found"); }),
@@ -18,121 +12,7 @@ vi.mock("node:path", () => ({
 	dirname: vi.fn(() => "/mock"),
 }));
 
-const mockConfig = {
-	mode: "approved" as const,
-	permissions: { allow: [], ask: [], deny: [] },
-	bashSafeList: ["cat", "head", "tail", "less", "more", "grep", "find", "ls", "pwd",
-		"whoami", "date", "uname", "hostname", "df", "free", "du", "wc",
-		"sort", "uniq", "cut", "tr", "tee", "true", "false", "test",
-		"touch", "mkdir", "cp", "mv", "rm", "echo", "base64",
-		"stat", "file", "which", "type",
-		"readlink", "realpath", "dirname", "basename"],
-	bashDangerous: ["python", "python3", "bash", "sh", "zsh", "node", "perl", "ruby",
-		"php", "lua", "osascript", "env", "sudo", "pwsh", "chmod", "chown"],
-};
-
-function isGitignorePatternMock(pattern: string, pathStr: string): boolean {
-	// Handle **/ prefix: matches zero or more directories
-	if (pattern.startsWith("**/")) {
-		const rest = pattern.slice(3);
-		// **/file.txt should match file.txt (zero dirs) or dir/file.txt (one+ dirs)
-		// Try with each possible prefix
-		if (isGitignorePatternMock(rest, pathStr)) return true;
-		// Try with one directory prefix
-		const slashIdx = pathStr.indexOf("/");
-		if (slashIdx > 0) {
-			return isGitignorePatternMock(rest, pathStr.slice(slashIdx + 1));
-		}
-		return false;
-	}
-	// Escape regex special chars, then handle wildcards
-	let regex = pattern
-		.replace(/[.+?^${}()|[\]\\]/g, "\\$&")
-		.replace(/\*\*/g, "\x00")
-		.replace(/\*/g, "[^/]*")
-		.replace(/\x00/g, ".*");
-	return new RegExp(`^${regex}$`).test(pathStr);
-}
-
-vi.mock("../approval-modes", () => ({
-	configPath: () => "/mock/approval-modes.json",
-	loadConfig: () => mockConfig,
-	saveConfig: vi.fn(),
-	analyzeBashCommand: (cmd: string) => mockAnalyze(cmd, mockConfig),
-	isGitignorePattern: isGitignorePatternMock,
-	parseRule: (rule: string) => {
-		const match = rule.match(/^(\w+)\((.+)\)$/);
-		if (!match) return null;
-		const [, tool, rest] = match;
-		if (rest.startsWith("args:")) {
-			return { tool, pattern: "", args: rest.slice(5) };
-		}
-		return { tool, pattern: rest, args: undefined };
-	},
-	checkPermissionRule: (rules: string[], event: { toolName: string }, input: Record<string, unknown>) => {
-		for (const ruleStr of rules) {
-			const match = ruleStr.match(/^(\w+)\((.+)\)$/);
-			if (!match) continue;
-			const [, tool, rest] = match;
-			if (tool.toLowerCase() !== event.toolName.toLowerCase()) continue;
-			if (rest.startsWith("args:")) {
-				const argsStr = rest.slice(5);
-				const inputStr = JSON.stringify(input);
-				if (inputStr.includes(argsStr.slice(1, -1))) return "allowed";
-				continue;
-			}
-			const filePath = input.path as string | undefined;
-			if (filePath && rest) {
-				if (isGitignorePatternMock(rest, filePath)) return "allowed";
-			}
-		}
-		return "ask";
-	},
-	checkStrictMode: (config: any, event: { toolName: string }, input: Record<string, unknown>) => {
-		for (const ruleStr of config.permissions.deny) {
-			const match = ruleStr.match(/^(\w+)\((.+)\)$/);
-			if (!match) continue;
-			const [, tool, rest] = match;
-			if (tool.toLowerCase() !== event.toolName.toLowerCase()) continue;
-			if (rest.startsWith("args:")) return "blocked";
-			const filePath = input.path as string | undefined;
-			if (filePath && rest) {
-				if (isGitignorePatternMock(rest, filePath)) return "blocked";
-			}
-		}
-		for (const ruleStr of config.permissions.allow) {
-			const match = ruleStr.match(/^(\w+)\((.+)\)$/);
-			if (!match) continue;
-			const [, tool, rest] = match;
-			if (tool.toLowerCase() !== event.toolName.toLowerCase()) continue;
-			if (rest.startsWith("args:")) return "allowed";
-			const filePath = input.path as string | undefined;
-			if (filePath && rest) {
-				if (isGitignorePatternMock(rest, filePath)) return "allowed";
-			}
-		}
-		for (const ruleStr of config.permissions.ask) {
-			const match = ruleStr.match(/^(\w+)\((.+)\)$/);
-			if (!match) continue;
-			const [, tool, rest] = match;
-			if (tool.toLowerCase() !== event.toolName.toLowerCase()) continue;
-			if (rest.startsWith("args:")) return "ask";
-			const filePath = input.path as string | undefined;
-			if (filePath && rest) {
-				if (isGitignorePatternMock(rest, filePath)) return "ask";
-			}
-		}
-		return "blocked";
-	},
-	modeLabel: (mode: string) => {
-		switch (mode) {
-			case "yolo": return "🔓 YOLO";
-			case "approved": return "🔒 Approved";
-			case "strict": return "🛡 Strict";
-		}
-	},
-}));
-
+// Import after mocking
 import {
 	isGitignorePattern,
 	parseRule,
@@ -205,21 +85,8 @@ describe("parseRule", () => {
 // --- analyzeBashCommand (21 tests) ---
 
 describe("analyzeBashCommand", () => {
-	beforeEach(() => {
-		mockAnalyze.mockReset();
-		mockAnalyze.mockImplementation((cmd: string, config: any) => {
-			if (/\|\|/.test(cmd) || /\&\&/.test(cmd) || /;/.test(cmd)) return "dangerous";
-			const firstWord = cmd.trim().split(/\s+/)[0];
-			if (config.bashDangerous.some(d => firstWord.startsWith(d))) return "dangerous";
-			if (/-rf|-f|-r|--force|--recursive|--interactive/.test(cmd)) return "dangerous";
-			if (config.bashSafeList.some(s => firstWord.startsWith(s))) return "safe";
-			return "dangerous";
-		});
-	});
-
 	it("safe: ls -la", () => {
 		expect(analyzeBashCommand("ls -la")).toBe("safe");
-		expect(mockAnalyze).toHaveBeenCalledWith("ls -la", mockConfig);
 	});
 
 	it("safe: grep with pattern", () => {
@@ -283,12 +150,10 @@ describe("analyzeBashCommand", () => {
 	});
 
 	it("pipe-bypass: base64 -d pipe", () => {
-		mockAnalyze.mockReturnValueOnce("pipe-bypass");
 		expect(analyzeBashCommand("cat file | base64 -d | bash")).toBe("pipe-bypass");
 	});
 
 	it("pipe-bypass: base64 --decode", () => {
-		mockAnalyze.mockReturnValueOnce("pipe-bypass");
 		expect(analyzeBashCommand("echo a | base64 --decode")).toBe("pipe-bypass");
 	});
 

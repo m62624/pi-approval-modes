@@ -14,7 +14,6 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { analyzeBashCommand as analyzeBashCommandInternal } from "./src/analysis.js";
 
 export type ApprovalMode = "yolo" | "approved" | "strict";
 
@@ -122,7 +121,64 @@ export function isGitignorePattern(pattern: string, pathStr: string): boolean {
  */
 export function analyzeBashCommand(command: string): "safe" | "dangerous" | "pipe-bypass" {
 	const config = loadConfig();
-	return analyzeBashCommandInternal(command, config);
+	command = command.trim();
+
+	// Check for chaining operators (pipe bypass detection)
+	if (/\|\|/.test(command) || /\&\&/.test(command) || /;/.test(command)) {
+		return "dangerous";
+	}
+
+	// Check for pipe to dangerous command
+	// e.g., `echo "a" | base64 -d | bash`
+	const pipeParts = command.split("|").map(s => s.trim());
+	if (pipeParts.length > 1) {
+		// Check if last part is dangerous
+		const lastCmd = pipeParts[pipeParts.length - 1].trim();
+		const lastTool = lastCmd.split(/\s+/)[0];
+		if (isDangerousCommand(lastTool, config)) {
+			return "pipe-bypass";
+		}
+		// Check for base64 pipe bypass: `cat file | base64 -d | bash`
+		for (const part of pipeParts) {
+			const tool = part.trim().split(/\s+/)[0];
+			if (tool === "base64") {
+				const args = part.trim().split(/\s+/).slice(1);
+				if (args.includes("-d") || args.includes("--decode")) {
+					return "pipe-bypass";
+				}
+			}
+		}
+	}
+
+	// Get first word (command name)
+	const firstWord = command.split(/\s+/)[0];
+
+	// Check dangerous commands
+	if (isDangerousCommand(firstWord, config)) {
+		return "dangerous";
+	}
+
+	// Check dangerous flags on safe commands
+	const dangerousFlags = /(-rf|-f|-r|--force|--recursive|--interactive)/;
+	if (dangerousFlags.test(command)) {
+		return "dangerous";
+	}
+
+	// Check if it's in safe list
+	if (isSafeCommand(firstWord, config)) {
+		return "safe";
+	}
+
+	// Unknown command - treat as dangerous
+	return "dangerous";
+}
+
+function isSafeCommand(cmd: string, config: Config): boolean {
+	return config.bashSafeList.some(s => cmd.startsWith(s));
+}
+
+function isDangerousCommand(cmd: string, config: Config): boolean {
+	return config.bashDangerous.some(d => cmd.startsWith(d));
 }
 
 // --- Permission rules (Strict mode) ---
@@ -159,14 +215,14 @@ export function checkPermissionRule(
 		try {
 			const rule = parseRule(ruleStr);
 			if (!rule) continue;
-			if (rule.tool !== event.toolName) continue;
+			if (rule.tool.toLowerCase() !== event.toolName.toLowerCase()) continue;
 			if (rule.args) {
 				const inputStr = JSON.stringify(input);
 				if (inputStr.includes(rule.args.slice(1, -1))) return "allowed";
 				continue;
 			}
 			const filePath = input.path as string | undefined;
-			if (filePath && matchesToolRule(rule, event.toolName, filePath)) return "allowed";
+			if (filePath && isGitignorePattern(rule.pattern, filePath)) return "allowed";
 		} catch (e) {
 			console.error(`[approval-modes] Error checking permission rule: ${e instanceof Error ? e.message : String(e)}`);
 		}
@@ -179,16 +235,19 @@ export function checkStrictMode(
 	event: { toolName: string },
 	input: Record<string, unknown>
 ): "allowed" | "blocked" | "ask" {
+	// Check deny first - if matched, block
 	const denyResult = checkPermissionRule(config.permissions.deny, event, input);
 	if (denyResult === "allowed") return "blocked";
-	if (denyResult === "ask") return "blocked";
 
+	// Check allow - if matched, allow
 	const allowResult = checkPermissionRule(config.permissions.allow, event, input);
 	if (allowResult === "allowed") return "allowed";
 
+	// Check ask - if matched, ask for confirmation
 	const askResult = checkPermissionRule(config.permissions.ask, event, input);
 	if (askResult === "allowed") return "ask";
 
+	// Nothing matched - default to blocked
 	return "blocked";
 }
 
