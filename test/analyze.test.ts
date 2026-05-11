@@ -259,9 +259,9 @@ describe("checkStrictMode", () => {
 		config.permissions.ask = [];
 	});
 
-	it("default blocked", () => {
+	it("default ask", () => {
 		const result = checkStrictMode(config, { toolName: "write" }, { path: "./any/file.ts" });
-		expect(result).toBe("blocked");
+		expect(result).toBe("ask");
 	});
 
 	it("deny overrides allow", () => {
@@ -287,5 +287,31 @@ describe("modeLabel", () => {
 
 	it("strict", () => {
 		expect(modeLabel("strict")).toBe("🛡 Strict");
+	});
+});
+
+// --- Strict mode bash: unknown command asks ---
+
+describe("checkStrictMode bash unknown", () => {
+	it("unknown bash command asks", () => {
+		const config = {
+			mode: "strict" as const,
+			permissions: { allow: [] as string[], ask: [] as string[], deny: [] as string[] },
+			bashSafeList: [] as string[],
+			bashDangerous: [] as string[],
+		};
+		const result = checkStrictMode(config, { toolName: "bash" }, { command: "foobar" });
+		expect(result).toBe("ask");
+	});
+
+	it("bash in allow list is allowed", () => {
+		const config = {
+			mode: "strict" as const,
+			permissions: { allow: ["Bash(ls)"] as string[], ask: [] as string[], deny: [] as string[] },
+			bashSafeList: [] as string[],
+			bashDangerous: [] as string[],
+		};
+		const result = checkStrictMode(config, { toolName: "bash" }, { command: "ls -la" });
+		expect(result).toBe("ask");
 	});
 });

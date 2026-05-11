@@ -247,8 +247,8 @@ export function checkStrictMode(
 	const askResult = checkPermissionRule(config.permissions.ask, event, input);
 	if (askResult === "allowed") return "ask";
 
-	// Nothing matched - default to blocked
-	return "blocked";
+	// Nothing matched - ask for confirmation
+	return "ask";
 }
 
 // --- Mode label ---
@@ -322,9 +322,11 @@ const factory: ExtensionFactory = async (api) => {
 						approvedCalls.add(event.toolCallId);
 						return { block: true, reason: "User denied approval" };
 					}
+					approvedCalls.add(event.toolCallId);
+					return undefined;
 				}
-				approvedCalls.add(event.toolCallId);
-				return undefined;
+				// Nothing matched - blocked by default
+				return { block: true, reason: "Blocked by strict mode" };
 			}
 		}
 
