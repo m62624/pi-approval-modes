@@ -238,39 +238,33 @@ describe("checkStrictMode", () => {
 		bashDangerous: [] as string[],
 	};
 
-	it("deny wins", () => {
-		config.permissions.deny = ["Write(.env)"];
-		const result = checkStrictMode(config, { toolName: "write" }, { path: ".env" });
-		expect(result).toBe("blocked");
-		config.permissions.deny = [];
-	});
-
-	it("allow wins", () => {
-		config.permissions.allow = ["Write(./tmp/**)"];
-		const result = checkStrictMode(config, { toolName: "write" }, { path: "./tmp/file.txt" });
-		expect(result).toBe("allowed");
-		config.permissions.allow = [];
-	});
-
-	it("ask via ask list", () => {
-		config.permissions.ask = ["Edit(./src/**)"];
-		const result = checkStrictMode(config, { toolName: "edit" }, { path: "./src/app.ts" });
-		expect(result).toBe("ask");
-		config.permissions.ask = [];
-	});
-
-	it("default ask", () => {
+	it("always ask: write", () => {
 		const result = checkStrictMode(config, { toolName: "write" }, { path: "./any/file.ts" });
 		expect(result).toBe("ask");
 	});
 
-	it("deny overrides allow", () => {
-		config.permissions.deny = ["Write(.env)"];
-		config.permissions.allow = ["Write(.env)"];
-		const result = checkStrictMode(config, { toolName: "write" }, { path: ".env" });
-		expect(result).toBe("blocked");
-		config.permissions.deny = [];
+	it("always ask: edit", () => {
+		const result = checkStrictMode(config, { toolName: "edit" }, { path: "./any/file.ts" });
+		expect(result).toBe("ask");
+	});
+
+	it("always ask: bash", () => {
+		const result = checkStrictMode(config, { toolName: "bash" }, { command: "ls -la" });
+		expect(result).toBe("ask");
+	});
+
+	it("always ask: ignore allow rules", () => {
+		config.permissions.allow = ["Write(./tmp/**)"];
+		const result = checkStrictMode(config, { toolName: "write" }, { path: "./tmp/file.txt" });
+		expect(result).toBe("ask");
 		config.permissions.allow = [];
+	});
+
+	it("always ask: ignore deny rules", () => {
+		config.permissions.deny = ["Write(.env)"];
+		const result = checkStrictMode(config, { toolName: "write" }, { path: ".env" });
+		expect(result).toBe("ask");
+		config.permissions.deny = [];
 	});
 });
 

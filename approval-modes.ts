@@ -231,23 +231,11 @@ export function checkPermissionRule(
 }
 
 export function checkStrictMode(
-	config: Config,
-	event: { toolName: string },
-	input: Record<string, unknown>
+	_config: Config,
+	_event: { toolName: string },
+	_input: Record<string, unknown>
 ): "allowed" | "blocked" | "ask" {
-	// Check deny first - if matched, block
-	const denyResult = checkPermissionRule(config.permissions.deny, event, input);
-	if (denyResult === "allowed") return "blocked";
-
-	// Check allow - if matched, allow
-	const allowResult = checkPermissionRule(config.permissions.allow, event, input);
-	if (allowResult === "allowed") return "allowed";
-
-	// Check ask - if matched, ask for confirmation
-	const askResult = checkPermissionRule(config.permissions.ask, event, input);
-	if (askResult === "allowed") return "ask";
-
-	// Nothing matched - ask for confirmation
+	// Strict mode: always ask for confirmation
 	return "ask";
 }
 
@@ -305,28 +293,15 @@ const factory: ExtensionFactory = async (api) => {
 			}
 
 			if (config.mode === "strict") {
-				const result = checkPermissionRule(config.permissions.allow, event, input);
-				if (result === "allowed") {
+				// Strict mode: always ask
+				const summary = `bash: ${command}`;
+				const approved = await ctx.ui.confirm("Approve bash command", summary, { timeout: 120000 });
+				if (!approved) {
 					approvedCalls.add(event.toolCallId);
-					return undefined;
+					return { block: true, reason: "User denied approval" };
 				}
-				const denyResult = checkPermissionRule(config.permissions.deny, event, input);
-				if (denyResult === "allowed" || denyResult === "ask") {
-					return { block: true, reason: "Blocked by strict mode" };
-				}
-				const askResult = checkPermissionRule(config.permissions.ask, event, input);
-				if (askResult === "allowed") {
-					const summary = `bash: ${command}`;
-					const approved = await ctx.ui.confirm("Approve bash command", summary, { timeout: 120000 });
-					if (!approved) {
-						approvedCalls.add(event.toolCallId);
-						return { block: true, reason: "User denied approval" };
-					}
-					approvedCalls.add(event.toolCallId);
-					return undefined;
-				}
-				// Nothing matched - blocked by default
-				return { block: true, reason: "Blocked by strict mode" };
+				approvedCalls.add(event.toolCallId);
+				return undefined;
 			}
 		}
 
@@ -335,18 +310,6 @@ const factory: ExtensionFactory = async (api) => {
 
 		const input = event.input as Record<string, unknown>;
 		const filePath = (input.path as string) ?? "unknown";
-
-		if (config.mode === "strict") {
-			const result = checkStrictMode(config, event, input);
-			if (result === "allowed") {
-				approvedCalls.add(event.toolCallId);
-				return undefined;
-			}
-			if (result === "blocked") {
-				return { block: true, reason: "Blocked by strict mode rule" };
-			}
-			// ask - fall through
-		}
 
 		const summary = event.toolName === "write" ? `write ${filePath}` : `edit ${filePath}`;
 		const approved = await ctx.ui.confirm("Approve file operation", summary, { timeout: 120000 });
