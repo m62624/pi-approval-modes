@@ -1,0 +1,23 @@
+{
+  "name": "@m62624/approval-modes",
+  "version": "1.0.0",
+  "description": "Approval modes for pi: YOLO, Approved, Strict",
+  "keywords": [
+    "pi-package"
+  ],
+  "main": "approval-modes.ts",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "approval-modes.ts"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/m62624/pi-approval-modes.git"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "vitest": "^4.1.6"
+  }
+}
