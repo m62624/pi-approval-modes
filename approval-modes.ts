@@ -12,7 +12,7 @@
 
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -39,7 +39,6 @@ interface Config {
 	shortcut: string;
 	permissions: {
 		allow: string[];
-		ask: string[];
 		deny: string[];
 	};
 	bashSafeList: string[];
@@ -63,7 +62,7 @@ const DEFAULT_BASH_DANGEROUS: string[] = [
 const DEFAULT_CONFIG: Config = {
 	mode: "read-only",
 	shortcut: "shift+tab",
-	permissions: { allow: [], ask: [], deny: [] },
+	permissions: { allow: [], deny: [] },
 	bashSafeList: [...DEFAULT_BASH_SAFE],
 	bashDangerous: [...DEFAULT_BASH_DANGEROUS],
 };
@@ -84,7 +83,7 @@ function loadConfigRaw(): Config | null {
 		return {
 			mode: resolveMode(loaded.mode),
 			shortcut: loaded.shortcut ?? "shift+tab",
-			permissions: loaded.permissions ?? { allow: [], ask: [], deny: [] },
+			permissions: loaded.permissions ?? { allow: [], deny: [] },
 			bashSafeList: loaded.bashSafeList ?? [...DEFAULT_BASH_SAFE],
 			bashDangerous: loaded.bashDangerous ?? [...DEFAULT_BASH_DANGEROUS],
 		};
@@ -99,7 +98,7 @@ function mergeConfig(loaded: Config | null): Config {
 		return {
 			mode: loaded.mode,
 			shortcut: loaded.shortcut ?? "shift+tab",
-			permissions: loaded.permissions ?? { allow: [], ask: [], deny: [] },
+			permissions: loaded.permissions ?? { allow: [], deny: [] },
 			bashSafeList: loaded.bashSafeList ?? [...DEFAULT_BASH_SAFE],
 			bashDangerous: loaded.bashDangerous ?? [...DEFAULT_BASH_DANGEROUS],
 		};
@@ -108,8 +107,7 @@ function mergeConfig(loaded: Config | null): Config {
 }
 
 function ensureDir(): void {
-	const fs = require("node:fs");
-	fs.mkdirSync(configPath().slice(0, -"approval-modes.json".length), { recursive: true });
+	mkdirSync(configPath().slice(0, -"approval-modes.json".length), { recursive: true });
 }
 
 function saveConfig(cfg: Config) {
@@ -136,10 +134,6 @@ function getConfig(): Config {
 	if (cachedConfig) return cachedConfig;
 	cachedConfig = mergeConfig(loadConfigRaw());
 	return cachedConfig;
-}
-
-function reloadConfig(): void {
-	cachedConfig = mergeConfig(loadConfigRaw());
 }
 
 // ─── Pattern helpers ─────────────────────────────────────────────────────────
@@ -215,11 +209,11 @@ export function analyzeBashCommand(command: string, config: Config): BashAnalysi
 }
 
 function isSafeCommand(cmd: string, config: Config): boolean {
-	return config.bashSafeList.some(s => cmd.startsWith(s));
+	return config.bashSafeList.includes(cmd);
 }
 
 function isDangerousCommand(cmd: string, config: Config): boolean {
-	return config.bashDangerous.some(d => cmd.startsWith(d));
+	return config.bashDangerous.includes(cmd);
 }
 
 // ─── Permission rules ────────────────────────────────────────────────────────
@@ -238,13 +232,6 @@ export function parseRule(rule: string): PatternRule | null {
 		return { tool, pattern: "", args: rest.slice(5) };
 	}
 	return { tool, pattern: rest, args: undefined };
-}
-
-function matchesToolRule(rule: PatternRule, toolName: string, filePath?: string): boolean {
-	if (rule.tool.toLowerCase() !== toolName.toLowerCase()) return false;
-	if (rule.args) return true;
-	if (!rule.pattern || !filePath) return false;
-	return isGitignorePattern(rule.pattern, filePath);
 }
 
 export function checkPermissionRule(
@@ -269,14 +256,6 @@ export function checkPermissionRule(
 			console.error(`[approval-modes] Error checking permission rule: ${e instanceof Error ? e.message : String(e)}`);
 		}
 	}
-	return "ask";
-}
-
-export function checkStrictMode(
-	_config: Config,
-	_event: { toolName: string },
-	_input: Record<string, unknown>
-): "allowed" | "blocked" | "ask" {
 	return "ask";
 }
 
@@ -343,6 +322,7 @@ const factory: ExtensionFactory = async (api) => {
 				if (!approved) {
 					approvedCalls.add(event.toolCallId);
 					blockedCommands.push({ tool: "bash", reason: summary, timestamp: Date.now() });
+					if (blockedCommands.length > 1000) blockedCommands.shift();
 					return { block: true, reason: "User denied approval" };
 				}
 				approvedCalls.add(event.toolCallId);
@@ -358,6 +338,7 @@ const factory: ExtensionFactory = async (api) => {
 				if (!approved) {
 					approvedCalls.add(event.toolCallId);
 					blockedCommands.push({ tool: "bash", reason: summary, timestamp: Date.now() });
+					if (blockedCommands.length > 1000) blockedCommands.shift();
 					return { block: true, reason: "User denied approval" };
 				}
 				approvedCalls.add(event.toolCallId);
@@ -403,6 +384,7 @@ const factory: ExtensionFactory = async (api) => {
 		if (!approved) {
 			approvedCalls.add(event.toolCallId);
 			blockedCommands.push({ tool: event.toolName, reason: summary, timestamp: Date.now() });
+					if (blockedCommands.length > 1000) blockedCommands.shift();
 			return { block: true, reason: "User denied approval" };
 		}
 		approvedCalls.add(event.toolCallId);
@@ -485,7 +467,7 @@ const factory: ExtensionFactory = async (api) => {
 		description: "Reload config from disk",
 		handler: async (_args, ctx) => {
 			cachedConfig = mergeConfig(loadConfigRaw());
-			config = getConfig();
+			config = cachedConfig!;
 			ctx.ui.setStatus("approval", modeLabel(config.mode));
 			ctx.ui.notify(`Config reloaded: ${modeLabel(config.mode)}`, "info");
 		},

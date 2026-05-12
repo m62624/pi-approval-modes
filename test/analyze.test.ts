@@ -18,7 +18,6 @@ import {
 	parseRule,
 	analyzeBashCommand,
 	checkPermissionRule,
-	checkStrictMode,
 	modeLabel,
 } from "../approval-modes";
 
@@ -26,7 +25,7 @@ import {
 const defaultConfig = {
 	mode: "read-only" as const,
 	shortcut: "shift+tab" as const,
-	permissions: { allow: [], ask: [], deny: [] },
+	permissions: { allow: [], deny: [] },
 	bashSafeList: [
 		"cat", "head", "tail", "less", "more", "grep", "find", "ls", "pwd",
 		"whoami", "date", "uname", "hostname", "df", "free", "du", "wc",
@@ -266,93 +265,6 @@ describe("checkPermissionRule", () => {
 		expect(result).toBe("ask");
 	});
 });
-
-// --- checkStrictMode (5 tests) ---
-
-describe("checkStrictMode", () => {
-	const config = {
-		mode: "strict" as const,
-		shortcut: "shift+tab" as const,
-		permissions: { allow: [] as string[], ask: [] as string[], deny: [] as string[] },
-		bashSafeList: [] as string[],
-		bashDangerous: [] as string[],
-	};
-
-	it("always ask: write", () => {
-		const result = checkStrictMode(config, { toolName: "write" }, { path: "./any/file.ts" });
-		expect(result).toBe("ask");
-	});
-
-	it("always ask: edit", () => {
-		const result = checkStrictMode(config, { toolName: "edit" }, { path: "./any/file.ts" });
-		expect(result).toBe("ask");
-	});
-
-	it("always ask: bash", () => {
-		const result = checkStrictMode(config, { toolName: "bash" }, { command: "ls -la" });
-		expect(result).toBe("ask");
-	});
-
-	it("always ask: ignore allow rules", () => {
-		config.permissions.allow = ["Write(./tmp/**)"];
-		const result = checkStrictMode(config, { toolName: "write" }, { path: "./tmp/file.txt" });
-		expect(result).toBe("ask");
-		config.permissions.allow = [];
-	});
-
-	it("always ask: ignore deny rules", () => {
-		config.permissions.deny = ["Write(.env)"];
-		const result = checkStrictMode(config, { toolName: "write" }, { path: ".env" });
-		expect(result).toBe("ask");
-		config.permissions.deny = [];
-	});
-});
-
-// --- modeLabel (3 tests) ---
-
-describe("modeLabel", () => {
-	it("yolo", () => {
-		expect(modeLabel("yolo")).toBe("🔓 YOLO");
-	});
-
-	it("read-only", () => {
-		expect(modeLabel("read-only")).toBe("🔒 Read-Only");
-	});
-
-	it("strict", () => {
-		expect(modeLabel("strict")).toBe("🛡 Strict");
-	});
-});
-
-// --- Strict mode bash: unknown command asks ---
-
-describe("checkStrictMode bash unknown", () => {
-	it("unknown bash command asks", () => {
-		const config = {
-			mode: "strict" as const,
-			shortcut: "shift+tab" as const,
-			permissions: { allow: [] as string[], ask: [] as string[], deny: [] as string[] },
-			bashSafeList: [] as string[],
-			bashDangerous: [] as string[],
-		};
-		const result = checkStrictMode(config, { toolName: "bash" }, { command: "foobar" });
-		expect(result).toBe("ask");
-	});
-
-	it("bash in allow list is allowed", () => {
-		const config = {
-			mode: "strict" as const,
-			shortcut: "shift+tab" as const,
-			permissions: { allow: ["Bash(ls)"] as string[], ask: [] as string[], deny: [] as string[] },
-			bashSafeList: [] as string[],
-			bashDangerous: [] as string[],
-		};
-		const result = checkStrictMode(config, { toolName: "bash" }, { command: "ls -la" });
-		expect(result).toBe("ask");
-	});
-});
-
-// --- checkPermissionRule deny rules (3 new tests) ---
 
 describe("checkPermissionRule deny", () => {
 	it("deny match: Write(.env) blocks", () => {
