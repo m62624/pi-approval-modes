@@ -77,13 +77,6 @@ Patterns are checked in order: **deny → ask → allow → default**.
 ## Installation
 
 ```bash
-pi install /path/to/pi-approval-modes
-```
-
-Or from npm/git:
-
-```bash
-pi install npm:@m62624/approval-modes
 pi install git:github.com/m62624/pi-approval-modes
 ```
 
