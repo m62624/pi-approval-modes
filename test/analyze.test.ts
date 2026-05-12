@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 // Mock fs - loadConfig will return defaults
 vi.mock("node:fs", () => ({
@@ -21,6 +21,25 @@ import {
 	checkStrictMode,
 	modeLabel,
 } from "../approval-modes";
+
+// Shared default config for bash tests
+const defaultConfig = {
+	mode: "approved" as const,
+	shortcut: "shift+tab" as const,
+	permissions: { allow: [], ask: [], deny: [] },
+	bashSafeList: [
+		"cat", "head", "tail", "less", "more", "grep", "find", "ls", "pwd",
+		"whoami", "date", "uname", "hostname", "df", "free", "du", "wc",
+		"sort", "uniq", "cut", "tr", "tee", "true", "false", "test",
+		"echo", "base64",
+		"stat", "file", "which", "type",
+		"readlink", "realpath", "dirname", "basename",
+	],
+	bashDangerous: [
+		"python", "python3", "bash", "sh", "zsh", "node", "perl", "ruby",
+		"php", "lua", "osascript", "env", "sudo", "pwsh", "chmod", "chown",
+	],
+};
 
 // --- isGitignorePattern (7 tests) ---
 
@@ -82,91 +101,111 @@ describe("parseRule", () => {
 	});
 });
 
-// --- analyzeBashCommand (21 tests) ---
+// --- analyzeBashCommand (23 tests) ---
 
 describe("analyzeBashCommand", () => {
 	it("safe: ls -la", () => {
-		expect(analyzeBashCommand("ls -la")).toBe("safe");
+		expect(analyzeBashCommand("ls -la", defaultConfig)).toBe("safe");
 	});
 
 	it("safe: grep with pattern", () => {
-		expect(analyzeBashCommand('grep "foo" file')).toBe("safe");
+		expect(analyzeBashCommand('grep "foo" file', defaultConfig)).toBe("safe");
 	});
 
 	it("safe: find command", () => {
-		expect(analyzeBashCommand("find . -name *.ts")).toBe("safe");
+		expect(analyzeBashCommand("find . -name *.ts", defaultConfig)).toBe("safe");
 	});
 
 	it("safe: trims whitespace", () => {
-		expect(analyzeBashCommand("  ls -la  ")).toBe("safe");
+		expect(analyzeBashCommand("  ls -la  ", defaultConfig)).toBe("safe");
 	});
 
 	it("safe: cat file", () => {
-		expect(analyzeBashCommand("cat file.txt")).toBe("safe");
+		expect(analyzeBashCommand("cat file.txt", defaultConfig)).toBe("safe");
 	});
 
 	it("safe: head file", () => {
-		expect(analyzeBashCommand("head -n 10 file.txt")).toBe("safe");
+		expect(analyzeBashCommand("head -n 10 file.txt", defaultConfig)).toBe("safe");
 	});
 
 	it("safe: echo", () => {
-		expect(analyzeBashCommand("echo hello")).toBe("safe");
+		expect(analyzeBashCommand("echo hello", defaultConfig)).toBe("safe");
 	});
 
 	it("safe: base64 without -d", () => {
-		expect(analyzeBashCommand("base64 file.txt")).toBe("safe");
+		expect(analyzeBashCommand("base64 file.txt", defaultConfig)).toBe("safe");
 	});
 
 	it("dangerous: python", () => {
-		expect(analyzeBashCommand("python -c '1+1'")).toBe("dangerous");
+		expect(analyzeBashCommand("python -c '1+1'", defaultConfig)).toBe("dangerous");
 	});
 
 	it("dangerous: sudo", () => {
-		expect(analyzeBashCommand("sudo rm /")).toBe("dangerous");
+		expect(analyzeBashCommand("sudo rm /", defaultConfig)).toBe("dangerous");
 	});
 
 	it("dangerous: node", () => {
-		expect(analyzeBashCommand("node index.js")).toBe("dangerous");
+		expect(analyzeBashCommand("node index.js", defaultConfig)).toBe("dangerous");
 	});
 
-	it("dangerous: rm -rf", () => {
-		expect(analyzeBashCommand("rm -rf /")).toBe("dangerous");
+	it("dangerous: rm -rf / (not in safe list)", () => {
+		expect(analyzeBashCommand("rm -rf /", defaultConfig)).toBe("dangerous");
 	});
 
-	it("dangerous: rm -f", () => {
-		expect(analyzeBashCommand("rm -f file")).toBe("dangerous");
+	it("dangerous: rm -f file (not in safe list)", () => {
+		expect(analyzeBashCommand("rm -f file", defaultConfig)).toBe("dangerous");
+	});
+
+	it("dangerous: touch (not in safe list)", () => {
+		expect(analyzeBashCommand("touch file", defaultConfig)).toBe("dangerous");
+	});
+
+	it("dangerous: mkdir (not in safe list)", () => {
+		expect(analyzeBashCommand("mkdir dir", defaultConfig)).toBe("dangerous");
+	});
+
+	it("dangerous: cp -r (not in safe list)", () => {
+		expect(analyzeBashCommand("cp -r src/ dest/", defaultConfig)).toBe("dangerous");
+	});
+
+	it("dangerous: mv (not in safe list)", () => {
+		expect(analyzeBashCommand("mv src dest", defaultConfig)).toBe("dangerous");
 	});
 
 	it("dangerous: chmod", () => {
-		expect(analyzeBashCommand("chmod 777 file")).toBe("dangerous");
+		expect(analyzeBashCommand("chmod 777 file", defaultConfig)).toBe("dangerous");
 	});
 
 	it("dangerous: chown", () => {
-		expect(analyzeBashCommand("chown root file")).toBe("dangerous");
-	});
-
-	it("dangerous: cp -r", () => {
-		expect(analyzeBashCommand("cp -r src/ dest/")).toBe("dangerous");
+		expect(analyzeBashCommand("chown root file", defaultConfig)).toBe("dangerous");
 	});
 
 	it("pipe-bypass: base64 -d pipe", () => {
-		expect(analyzeBashCommand("cat file | base64 -d | bash")).toBe("pipe-bypass");
+		expect(analyzeBashCommand("cat file | base64 -d | bash", defaultConfig)).toBe("pipe-bypass");
 	});
 
 	it("pipe-bypass: base64 --decode", () => {
-		expect(analyzeBashCommand("echo a | base64 --decode")).toBe("pipe-bypass");
+		expect(analyzeBashCommand("echo a | base64 --decode", defaultConfig)).toBe("pipe-bypass");
 	});
 
 	it("dangerous: chaining with &&", () => {
-		expect(analyzeBashCommand("echo a && rm -rf /")).toBe("dangerous");
+		expect(analyzeBashCommand("echo a && rm -rf /", defaultConfig)).toBe("dangerous");
 	});
 
 	it("dangerous: chaining with semicolon", () => {
-		expect(analyzeBashCommand("echo a ; rm -rf /")).toBe("dangerous");
+		expect(analyzeBashCommand("echo a ; rm -rf /", defaultConfig)).toBe("dangerous");
 	});
 
 	it("dangerous: unknown command", () => {
-		expect(analyzeBashCommand("foobar")).toBe("dangerous");
+		expect(analyzeBashCommand("foobar", defaultConfig)).toBe("dangerous");
+	});
+
+	it("safe: ls without dangerous flags", () => {
+		expect(analyzeBashCommand("ls -la", defaultConfig)).toBe("safe");
+	});
+
+	it("safe: cat without dangerous flags", () => {
+		expect(analyzeBashCommand("cat file.txt", defaultConfig)).toBe("safe");
 	});
 });
 
@@ -233,6 +272,7 @@ describe("checkPermissionRule", () => {
 describe("checkStrictMode", () => {
 	const config = {
 		mode: "strict" as const,
+		shortcut: "shift+tab" as const,
 		permissions: { allow: [] as string[], ask: [] as string[], deny: [] as string[] },
 		bashSafeList: [] as string[],
 		bashDangerous: [] as string[],
@@ -290,6 +330,7 @@ describe("checkStrictMode bash unknown", () => {
 	it("unknown bash command asks", () => {
 		const config = {
 			mode: "strict" as const,
+			shortcut: "shift+tab" as const,
 			permissions: { allow: [] as string[], ask: [] as string[], deny: [] as string[] },
 			bashSafeList: [] as string[],
 			bashDangerous: [] as string[],
@@ -301,6 +342,7 @@ describe("checkStrictMode bash unknown", () => {
 	it("bash in allow list is allowed", () => {
 		const config = {
 			mode: "strict" as const,
+			shortcut: "shift+tab" as const,
 			permissions: { allow: ["Bash(ls)"] as string[], ask: [] as string[], deny: [] as string[] },
 			bashSafeList: [] as string[],
 			bashDangerous: [] as string[],

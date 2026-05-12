@@ -8,7 +8,7 @@ Approval modes for the pi coding agent. Three modes control how strictly tool ca
 No approvals, no checks. All tool calls execute immediately.
 
 ### 🔒 Approved (default)
-- **Bash commands:** safe-list based. Commands on the safe list execute automatically. Anything else requires confirmation.
+- **Bash commands:** read-only commands auto-approve. File-modifying commands (`rm`, `touch`, `mkdir`, `cp`, `mv`) require confirmation.
 - **Write/Edit:** always asks for confirmation.
 
 ### 🛡 Strict
@@ -17,16 +17,19 @@ Always asks for confirmation before executing any tool call — bash, write, edi
 ## Bash Analysis (Approved mode)
 
 ### Safe list (auto-approved)
-These commands execute without approval:
-`cat`, `head`, `tail`, `less`, `more`, `grep`, `find`, `ls`, `pwd`, `whoami`, `date`, `uname`, `hostname`, `df`, `free`, `du`, `wc`, `sort`, `uniq`, `cut`, `tr`, `tee`, `true`, `false`, `test`, `touch`, `mkdir`, `cp`, `mv`, `rm`, `echo`, `base64`, `stat`, `file`, `which`, `type`, `readlink`, `realpath`, `dirname`, `basename`
+Read-only / information commands execute without approval:
+`cat`, `head`, `tail`, `less`, `more`, `grep`, `find`, `ls`, `pwd`, `whoami`, `date`, `uname`, `hostname`, `df`, `free`, `du`, `wc`, `sort`, `uniq`, `cut`, `tr`, `tee`, `true`, `false`, `test`, `echo`, `base64`, `stat`, `file`, `which`, `type`, `readlink`, `realpath`, `dirname`, `basename`
+
+### File-modifying commands (require approval)
+`rm`, `touch`, `mkdir`, `cp`, `mv` — these modify the filesystem and require confirmation.
 
 ### Dangerous commands (blocked or requires approval)
 These are always flagged:
 `python`, `python3`, `bash`, `sh`, `zsh`, `node`, `perl`, `ruby`, `php`, `lua`, `osascript`, `env`, `sudo`, `pwsh`, `chmod`, `chown`
 
 ### Flag detection
-These flags trigger approval even on safe commands:
-`-rf`, `-f`, `-r`, `--force`, `--recursive`, `--interactive`
+Specific dangerous flag patterns trigger approval:
+`rm -rf` / `rm -fr`, `cp -r`
 
 ### Pipe bypass detection
 Commands like `cat file | base64 -d | bash` are detected as pipe bypasses and require approval.
@@ -43,13 +46,39 @@ Commands with `&&`, `||`, or `;` require approval.
 | `/approval approved` | Switch to Approved |
 | `/approval strict` | Switch to Strict |
 | `/approval-reset` | Reset to defaults |
+| `/approval-stats` | Show approval statistics (approved/blocked/total) |
+| `/approval-shortcut` | Show or change shortcut (e.g. `/approval-shortcut ctrl+shift+a`) |
 
 ## Keybindings
 
 | Key | Action |
 |-----|--------|
-| **Shift+Tab** | Cycle modes (yolo → approved → strict) |
+| **Shift+Tab** (default) | Cycle modes (yolo → approved → strict) |
 | **Alt+Q** | Cycle thinking level |
+
+## Configuration
+
+Config file: `~/.pi/agent/extensions/approval-modes.json`
+
+```json
+{
+  "mode": "approved",
+  "shortcut": "shift+tab",
+  "permissions": {
+    "allow": [],
+    "ask": [],
+    "deny": []
+  },
+  "bashSafeList": [...],
+  "bashDangerous": [...]
+}
+```
+
+- `mode` — current approval mode
+- `shortcut` — keybinding to cycle modes (any valid pi shortcut format)
+- `permissions.allow` — rules that auto-approve (e.g. `Write(./tmp/**)`)
+- `permissions.deny` — rules that auto-block (e.g. `Write(.env)`)
+- `bashSafeList` / `bashDangerous` — bash command classification lists
 
 ## Installation
 
@@ -66,9 +95,7 @@ pi install git:github.com/m62624/pi-approval-modes
 
 After installing, run `/reload` in the agent to activate.
 
-## Configuration
-
-After installation, the package is registered in `~/.pi/agent/settings.json`. To remove:
+To remove:
 
 ```bash
 pi remove /path/to/pi-approval-modes
@@ -78,7 +105,7 @@ pi remove /path/to/pi-approval-modes
 
 ```bash
 cd pi-approval-modes
-npx vitest --run   # run 49 tests
+npx vitest --run   # run 54 tests
 ```
 
 ## License
