@@ -40,31 +40,123 @@ interface Config {
 	permissions: {
 		allow: string[];
 		deny: string[];
+		ask: string[];
 	};
-	bashSafeList: string[];
-	bashDangerous: string[];
 }
 
-const DEFAULT_BASH_SAFE: string[] = [
-	"cat", "head", "tail", "less", "more", "grep", "find", "ls", "pwd",
-	"whoami", "date", "uname", "hostname", "df", "free", "du", "wc",
-	"sort", "uniq", "cut", "tr", "tee", "true", "false", "test",
-	"echo", "base64",
-	"stat", "file", "which", "type",
-	"readlink", "realpath", "dirname", "basename",
-];
-
-const DEFAULT_BASH_DANGEROUS: string[] = [
-	"python", "python3", "bash", "sh", "zsh", "node", "perl", "ruby",
-	"php", "lua", "osascript", "env", "sudo", "pwsh", "chmod", "chown",
-];
+const DEFAULT_PERMISSIONS: Config["permissions"] = {
+	allow: [
+		"^ls\\b",
+		"^cat\\b",
+		"^head\\b",
+		"^tail\\b",
+		"^less\\b",
+		"^more\\b",
+		"^grep\\b",
+		"^find\\b",
+		"^pwd\\b",
+		"^whoami\\b",
+		"^date\\b",
+		"^uname\\b",
+		"^hostname\\b",
+		"^df\\b",
+		"^free\\b",
+		"^du\\b",
+		"^wc\\b",
+		"^sort\\b",
+		"^uniq\\b",
+		"^cut\\b",
+		"^tr\\b",
+		"^true\\b",
+		"^false\\b",
+		"^test\\b",
+		"^echo\\b",
+		"^base64\\b",
+		"^stat\\b",
+		"^file\\b",
+		"^which\\b",
+		"^type\\b",
+		"^readlink\\b",
+		"^realpath\\b",
+		"^dirname\\b",
+		"^basename\\b",
+		"^\\s*$",
+		"^cd\\b",
+		"^export\\b",
+		"^alias\\b",
+		"^source\\b",
+		"^\\.\\s",
+		"^\\[\\s",
+		"^\\[\\[",
+	],
+	deny: [
+		"rm\\s+.*-.*rf.*|rm\\s+.*-.*fr.*|rm\\s+-[a-z]*rf|rm\\s+-[a-z]*fr|rm\\s+-[a-z]*r[a-z]*f|rm\\s+-[a-z]*f[a-z]*r|rm\\s+-[a-z]*r\\s+-[a-z]*f|rm\\s+-[a-z]*f\\s+-[a-z]*r|rm\\s+-[a-z]*ri|rm\\s+-[a-z]*ir",
+		"rm\\s+.*-[a-z]*f[a-z]*r",
+		"rm\\s+.*-[a-z]*r[a-z]*i",
+		"rm\\s+.*-[a-z]*i[a-z]*r",
+		"cp\\s+.*-[a-z]*r",
+		"mv\\s+.*-[a-z]*r",
+		"\\bdd\\b",
+		"\\bmkfs\\b",
+		"\\bfdisk\\b",
+		"\\bchmod\\b",
+		"\\bchown\\b",
+		"\\bsudo\\b",
+		"\\bsu\\b",
+		">\\s*/etc/|>\\s*/root/|>\\s*/boot/|>\\s*/sys/|>\\s*/proc/|>\\s*/dev/|>\\s*/$|>>\\s*/etc/|>>\\s*/root/|>>\\s*/boot/|>>\\s*/sys/|>>\\s*/proc/|>>\\s*/dev/|>>\\s*/$",
+		">>\\s*/",
+		"tee\\s+.*\\s*/",
+		"echo\\s+.*>\\s*/",
+		"python\\w*\\s+.*-c\\s+",
+		"node\\s+.*-e\\s+",
+		"bash\\s+.*-c\\s+",
+		"sh\\s+.*-c\\s+",
+		"zsh\\s+.*-c\\s+",
+		"perl\\s+.*-e\\s+",
+		"ruby\\s+.*-e\\s+",
+		"php\\s+.*-r\\s+",
+		"\\beval\\b",
+		"\\bexec\\b",
+		"\\bsystem\\b",
+		"\\bkill\\b",
+		"\\bfuser\\b",
+		"\\bpkill\\b",
+		"\\bkillall\\b",
+		"\\bshred\\b",
+		"\\bnc\\b",
+		"\\bncat\\b",
+		"\\bnmap\\b",
+		"\\bwget\\b",
+		"\\bcurl\\b",
+		"\\bssh\\b",
+		"\\bscp\\b",
+		"\\bsftp\\b",
+	],
+	ask: [
+		"rm\\s+\\S+",
+		"cp\\s+\\S+",
+		"mv\\s+\\S+",
+		">\\s*[^/]",
+		">>\\s*[^/]",
+		"\\|\\s*tee\\b",
+		"tee\\s+\\S+",
+		"echo\\s+.*>\\s+",
+		"printf\\s+.*>\\s+",
+		"python\\w*\\s+.*-c\\s+",
+		"node\\s+.*-e\\s+",
+		"bash\\s+.*-c\\s+",
+		"sh\\s+.*-c\\s+",
+		"zsh\\s+.*-c\\s+",
+		"perl\\s+.*-e\\s+",
+		"ruby\\s+.*-e\\s+",
+		"php\\s+.*-r\\s+",
+	],
+};
 
 const DEFAULT_CONFIG: Config = {
 	mode: "read-only",
 	shortcut: "shift+tab",
-	permissions: { allow: [], deny: [] },
-	bashSafeList: [...DEFAULT_BASH_SAFE],
-	bashDangerous: [...DEFAULT_BASH_DANGEROUS],
+	permissions: { ...DEFAULT_PERMISSIONS },
 };
 
 // ─── Config I/O ──────────────────────────────────────────────────────────────
@@ -83,9 +175,11 @@ function loadConfigRaw(): Config | null {
 		return {
 			mode: resolveMode(loaded.mode),
 			shortcut: loaded.shortcut ?? "shift+tab",
-			permissions: loaded.permissions ?? { allow: [], deny: [] },
-			bashSafeList: loaded.bashSafeList ?? [...DEFAULT_BASH_SAFE],
-			bashDangerous: loaded.bashDangerous ?? [...DEFAULT_BASH_DANGEROUS],
+			permissions: {
+				allow: loaded.permissions?.allow ?? [...DEFAULT_PERMISSIONS.allow],
+				deny: loaded.permissions?.deny ?? [...DEFAULT_PERMISSIONS.deny],
+				ask: loaded.permissions?.ask ?? [...DEFAULT_PERMISSIONS.ask],
+			},
 		};
 	} catch (e) {
 		console.error(`[approval-modes] Failed to load config: ${e instanceof Error ? e.message : String(e)}`);
@@ -98,12 +192,14 @@ function mergeConfig(loaded: Config | null): Config {
 		return {
 			mode: loaded.mode,
 			shortcut: loaded.shortcut ?? "shift+tab",
-			permissions: loaded.permissions ?? { allow: [], deny: [] },
-			bashSafeList: loaded.bashSafeList ?? [...DEFAULT_BASH_SAFE],
-			bashDangerous: loaded.bashDangerous ?? [...DEFAULT_BASH_DANGEROUS],
+			permissions: {
+				allow: loaded.permissions?.allow ?? [...DEFAULT_PERMISSIONS.allow],
+				deny: loaded.permissions?.deny ?? [...DEFAULT_PERMISSIONS.deny],
+				ask: loaded.permissions?.ask ?? [...DEFAULT_PERMISSIONS.ask],
+			},
 		};
 	}
-	return { ...DEFAULT_CONFIG, permissions: { ...DEFAULT_CONFIG.permissions }, bashSafeList: [...DEFAULT_BASH_SAFE], bashDangerous: [...DEFAULT_BASH_DANGEROUS] };
+	return { ...DEFAULT_CONFIG, permissions: { ...DEFAULT_CONFIG.permissions } };
 }
 
 function ensureDir(): void {
@@ -160,8 +256,20 @@ export function isGitignorePattern(pattern: string, pathStr: string): boolean {
 
 export type BashAnalysis = "safe" | "dangerous" | "pipe-bypass";
 
+/**
+ * Analyze bash command using unified regex-based permission system.
+ *
+ * Order of checks:
+ *   1. deny → BLOCKED
+ *   2. allow → SAFE
+ *   3. ask → ASK
+ *   4. default → ASK
+ */
 export function analyzeBashCommand(command: string, config: Config): BashAnalysis {
 	command = command.trim();
+
+	// Empty command — safe
+	if (!command) return "safe";
 
 	// Chaining operators: always dangerous
 	if (/\|\|/.test(command) || /\&\&/.test(command) || /;/.test(command)) {
@@ -171,12 +279,6 @@ export function analyzeBashCommand(command: string, config: Config): BashAnalysi
 	// Pipe analysis
 	const pipeParts = command.split("|").map(s => s.trim());
 	if (pipeParts.length > 1) {
-		// Last command in pipe is dangerous → pipe-bypass
-		const lastCmd = pipeParts[pipeParts.length - 1].trim();
-		const lastTool = lastCmd.split(/\s+/)[0];
-		if (isDangerousCommand(lastTool, config)) {
-			return "pipe-bypass";
-		}
 		// base64 decode pipe: cat file | base64 -d | bash
 		for (const part of pipeParts) {
 			const tool = part.trim().split(/\s+/)[0];
@@ -189,31 +291,29 @@ export function analyzeBashCommand(command: string, config: Config): BashAnalysi
 		}
 	}
 
-	const firstWord = command.split(/\s+/)[0];
-
-	// Dangerous command check
-	if (isDangerousCommand(firstWord, config)) {
-		return "dangerous";
+	// 1. Check deny patterns
+	for (const pattern of config.permissions.deny) {
+		if (new RegExp(pattern).test(command)) {
+			return "dangerous";
+		}
 	}
 
-	// Dangerous flags — specific patterns only
-	if (/\brm\s+.*\b(-[a-zA-Z]*rf|-[a-zA-Z]*fr)\b/.test(command)) return "dangerous";
-	if (/\bcp\s+.*\b(-[a-zA-Z]*r)\b/.test(command)) return "dangerous";
-
-	// Safe list
-	if (isSafeCommand(firstWord, config)) {
-		return "safe";
+	// 2. Check ask patterns (before allow, so redirects get asked)
+	for (const pattern of config.permissions.ask) {
+		if (new RegExp(pattern).test(command)) {
+			return "pipe-bypass";
+		}
 	}
 
-	return "dangerous";
-}
+	// 3. Check allow patterns
+	for (const pattern of config.permissions.allow) {
+		if (new RegExp(pattern).test(command)) {
+			return "safe";
+		}
+	}
 
-function isSafeCommand(cmd: string, config: Config): boolean {
-	return config.bashSafeList.includes(cmd);
-}
-
-function isDangerousCommand(cmd: string, config: Config): boolean {
-	return config.bashDangerous.includes(cmd);
+	// 4. Default — ask
+	return "pipe-bypass";
 }
 
 // ─── Permission rules ────────────────────────────────────────────────────────
@@ -429,7 +529,7 @@ const factory: ExtensionFactory = async (api) => {
 	api.registerCommand("approval-reset", {
 		description: "Reset to defaults",
 		handler: async (_args, ctx) => {
-			config = { ...DEFAULT_CONFIG, permissions: { ...DEFAULT_CONFIG.permissions }, bashSafeList: [...DEFAULT_BASH_SAFE], bashDangerous: [...DEFAULT_BASH_DANGEROUS] };
+			config = { ...DEFAULT_CONFIG, permissions: { ...DEFAULT_CONFIG.permissions } };
 			saveConfig(config);
 			cachedConfig = config;
 			ctx.ui.setStatus("approval", modeLabel(config.mode));
