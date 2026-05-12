@@ -104,6 +104,12 @@ npm run format     # auto-format
 npm run test       # run 129 tests
 ```
 
+## AI Generation
+
+This project was generated with:
+- **Model:** Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf
+- **Runtime:** llama.cpp, port 8080
+
 ## License
 
 MIT
