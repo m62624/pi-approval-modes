@@ -17,6 +17,9 @@
 		"url": "git+https://github.com/m62624/pi-approval-modes.git"
 	},
 	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
 	"scripts": {
 		"check": "biome check .",
 		"format": "biome format --write .",
