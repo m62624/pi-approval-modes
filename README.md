@@ -16,26 +16,20 @@ Always asks for confirmation before executing any tool call — bash, write, edi
 
 ## Bash Analysis (Read-Only mode)
 
-### Safe list (auto-approved)
-Read-only / information commands execute without approval:
-`cat`, `head`, `tail`, `less`, `more`, `grep`, `find`, `ls`, `pwd`, `whoami`, `date`, `uname`, `hostname`, `df`, `free`, `du`, `wc`, `sort`, `uniq`, `cut`, `tr`, `tee`, `true`, `false`, `test`, `echo`, `base64`, `stat`, `file`, `which`, `type`, `readlink`, `realpath`, `dirname`, `basename`
+Uses a unified regex-based permission system (`permissions.allow` / `deny` / `ask`):
 
-### File-modifying commands (require approval)
-`rm`, `touch`, `mkdir`, `cp`, `mv` — these modify the filesystem and require confirmation.
+1. **Deny** → blocked (e.g. `rm -rf`, interpreters with `-c`/`-e`, system writes to `/etc/`, `/proc/`, etc.)
+2. **Ask** → confirmation required (e.g. `rm file`, `echo > file`, `cp src dest`, pipes with `tee`)
+3. **Allow** → auto-approved (e.g. `ls`, `cat`, `grep`, `find`, `pwd`, `free`, `df`)
+4. **Default** → ask (unknown commands)
 
-### Dangerous commands (blocked or requires approval)
-These are always flagged:
-`python`, `python3`, `bash`, `sh`, `zsh`, `node`, `perl`, `ruby`, `php`, `lua`, `osascript`, `env`, `sudo`, `pwsh`, `chmod`, `chown`
-
-### Flag detection
-Specific dangerous flag patterns trigger approval:
-`rm -rf` / `rm -fr`, `cp -r`
+Redirects (`>`, `>>`) always trigger confirmation, even for safe commands like `echo`.
 
 ### Pipe bypass detection
 Commands like `cat file | base64 -d | bash` are detected as pipe bypasses and require approval.
 
 ### Chaining detection
-Commands with `&&`, `||`, or `;` require approval.
+Commands with `&&`, `||`, or `;` are treated as dangerous.
 
 ## Commands
 
@@ -55,7 +49,6 @@ Commands with `&&`, `||`, or `;` require approval.
 | Key | Action |
 |-----|--------|
 | **Shift+Tab** (default) | Cycle modes (yolo → read-only → strict) |
-| **Alt+Q** | Cycle thinking level |
 
 ## Configuration
 
@@ -66,20 +59,20 @@ Config file: `~/.pi/agent/extensions/approval-modes.json`
   "mode": "read-only",
   "shortcut": "shift+tab",
   "permissions": {
-    "allow": [],
-    "ask": [],
-    "deny": []
-  },
-  "bashSafeList": [...],
-  "bashDangerous": [...]
+    "allow": ["^ls\\b", "^cat\\b", "^grep\\b", "^find\\b"],
+    "deny": ["rm\\s+-[a-z]*[rf][a-z]*[fi]", "\\bsudo\\b", "\\beval\\b"],
+    "ask": ["rm\\s+\\S+", ">\\s*[^/]", "tee\\s+\\S+"]
+  }
 }
 ```
 
-- `mode` — current approval mode
-- `shortcut` — keybinding to cycle modes (any valid pi shortcut format)
-- `permissions.allow` — rules that auto-approve (e.g. `Write(./tmp/**)`)
-- `permissions.deny` — rules that auto-block (e.g. `Write(.env)`)
-- `bashSafeList` / `bashDangerous` — bash command classification lists
+- `mode` — approval mode (`yolo`, `read-only`, `strict`)
+- `shortcut` — keybinding to cycle modes
+- `permissions.allow` — regex patterns for auto-approved commands
+- `permissions.deny` — regex patterns for auto-blocked commands
+- `permissions.ask` — regex patterns that trigger confirmation
+
+Patterns are checked in order: **deny → ask → allow → default**.
 
 ## Installation
 
@@ -106,7 +99,9 @@ pi remove /path/to/pi-approval-modes
 
 ```bash
 cd pi-approval-modes
-npx vitest --run   # run 57 tests
+npm run check      # lint + format check
+npm run format     # auto-format
+npm run test       # run 129 tests
 ```
 
 ## License
