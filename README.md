@@ -7,14 +7,14 @@ Approval modes for the pi coding agent. Three modes control how strictly tool ca
 ### 🔓 YOLO
 No approvals, no checks. All tool calls execute immediately.
 
-### 🔒 Approved (default)
+### 🔒 Read-Only (default)
 - **Bash commands:** read-only commands auto-approve. File-modifying commands (`rm`, `touch`, `mkdir`, `cp`, `mv`) require confirmation.
 - **Write/Edit:** always asks for confirmation.
 
 ### 🛡 Strict
 Always asks for confirmation before executing any tool call — bash, write, edit, anything. No exceptions.
 
-## Bash Analysis (Approved mode)
+## Bash Analysis (Read-Only mode)
 
 ### Safe list (auto-approved)
 Read-only / information commands execute without approval:
@@ -43,17 +43,18 @@ Commands with `&&`, `||`, or `;` require approval.
 |---------|-------------|
 | `/approval` | Show current mode |
 | `/approval yolo` | Switch to YOLO |
-| `/approval approved` | Switch to Approved |
+| `/approval read-only` | Switch to Read-Only |
 | `/approval strict` | Switch to Strict |
 | `/approval-reset` | Reset to defaults |
 | `/approval-stats` | Show approval statistics (approved/blocked/total) |
 | `/approval-shortcut` | Show or change shortcut (e.g. `/approval-shortcut ctrl+shift+a`) |
+| `/approval-reload` | Reload config from disk |
 
 ## Keybindings
 
 | Key | Action |
 |-----|--------|
-| **Shift+Tab** (default) | Cycle modes (yolo → approved → strict) |
+| **Shift+Tab** (default) | Cycle modes (yolo → read-only → strict) |
 | **Alt+Q** | Cycle thinking level |
 
 ## Configuration
@@ -62,7 +63,7 @@ Config file: `~/.pi/agent/extensions/approval-modes.json`
 
 ```json
 {
-  "mode": "approved",
+  "mode": "read-only",
   "shortcut": "shift+tab",
   "permissions": {
     "allow": [],
@@ -105,7 +106,7 @@ pi remove /path/to/pi-approval-modes
 
 ```bash
 cd pi-approval-modes
-npx vitest --run   # run 54 tests
+npx vitest --run   # run 57 tests
 ```
 
 ## License

@@ -24,7 +24,7 @@ import {
 
 // Shared default config for bash tests
 const defaultConfig = {
-	mode: "approved" as const,
+	mode: "read-only" as const,
 	shortcut: "shift+tab" as const,
 	permissions: { allow: [], ask: [], deny: [] },
 	bashSafeList: [
@@ -315,8 +315,8 @@ describe("modeLabel", () => {
 		expect(modeLabel("yolo")).toBe("🔓 YOLO");
 	});
 
-	it("approved", () => {
-		expect(modeLabel("approved")).toBe("🔒 Approved");
+	it("read-only", () => {
+		expect(modeLabel("read-only")).toBe("🔒 Read-Only");
 	});
 
 	it("strict", () => {
@@ -349,5 +349,39 @@ describe("checkStrictMode bash unknown", () => {
 		};
 		const result = checkStrictMode(config, { toolName: "bash" }, { command: "ls -la" });
 		expect(result).toBe("ask");
+	});
+});
+
+// --- checkPermissionRule deny rules (3 new tests) ---
+
+describe("checkPermissionRule deny", () => {
+	it("deny match: Write(.env) blocks", () => {
+		const result = checkPermissionRule(
+			["Write(.env)"],
+			{ toolName: "write" },
+			{ path: ".env" },
+			{ deny: true }
+		);
+		expect(result).toBe("blocked");
+	});
+
+	it("deny no match: Write(.env) allows", () => {
+		const result = checkPermissionRule(
+			["Write(.env)"],
+			{ toolName: "write" },
+			{ path: "./src/file.ts" },
+			{ deny: true }
+		);
+		expect(result).toBe("ask");
+	});
+
+	it("deny with args match", () => {
+		const result = checkPermissionRule(
+			['MyTool(args:{"x":1})'],
+			{ toolName: "myTool" },
+			{ x: 1 },
+			{ deny: true }
+		);
+		expect(result).toBe("blocked");
 	});
 });

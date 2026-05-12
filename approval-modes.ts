@@ -1,9 +1,9 @@
 /**
- * Approval modes: YOLO, Approved, Strict.
+ * Approval modes: YOLO, Read-Only, Strict.
  *
  * Modes:
  *   YOLO     - no approvals, no checks
- *   Approved - bash safe-list + ask for write/edit
+ *   Read-Only - bash read-only auto-approve, ask for write/edit
  *   Strict   - always ask
  *
  * Switch: configurable shortcut (default shift+tab)
@@ -16,7 +16,21 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type ApprovalMode = "yolo" | "approved" | "strict";
+export type ApprovalMode = "yolo" | "read-only" | "strict";
+
+// Mode aliases for backward compatibility
+const MODE_ALIASES: Record<string, ApprovalMode> = {
+	"approved": "read-only",
+	"safe": "read-only",
+};
+
+function resolveMode(raw: string | undefined): ApprovalMode {
+	if (!raw) return "read-only";
+	const normalized = raw.toLowerCase().trim();
+	if (normalized in MODE_ALIASES) return MODE_ALIASES[normalized];
+	if (normalized === "yolo" || normalized === "read-only" || normalized === "strict") return normalized as ApprovalMode;
+	return "read-only";
+}
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -47,7 +61,7 @@ const DEFAULT_BASH_DANGEROUS: string[] = [
 ];
 
 const DEFAULT_CONFIG: Config = {
-	mode: "approved",
+	mode: "read-only",
 	shortcut: "shift+tab",
 	permissions: { allow: [], ask: [], deny: [] },
 	bashSafeList: [...DEFAULT_BASH_SAFE],
@@ -68,7 +82,7 @@ function loadConfigRaw(): Config | null {
 		const raw = readFileSync(p, "utf-8");
 		const loaded = JSON.parse(raw);
 		return {
-			mode: loaded.mode ?? "approved",
+			mode: resolveMode(loaded.mode),
 			shortcut: loaded.shortcut ?? "shift+tab",
 			permissions: loaded.permissions ?? { allow: [], ask: [], deny: [] },
 			bashSafeList: loaded.bashSafeList ?? [...DEFAULT_BASH_SAFE],
@@ -93,23 +107,24 @@ function mergeConfig(loaded: Config | null): Config {
 	return { ...DEFAULT_CONFIG, permissions: { ...DEFAULT_CONFIG.permissions }, bashSafeList: [...DEFAULT_BASH_SAFE], bashDangerous: [...DEFAULT_BASH_DANGEROUS] };
 }
 
+function ensureDir(): void {
+	const fs = require("node:fs");
+	fs.mkdirSync(configPath().slice(0, -"approval-modes.json".length), { recursive: true });
+}
+
 function saveConfig(cfg: Config) {
 	try {
-		const p = configPath();
-		const fs = require("node:fs");
-		fs.mkdirSync(join(p, ".."), { recursive: true });
-		writeFileSync(p, JSON.stringify(cfg, null, 2));
+		ensureDir();
+		writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
 	} catch (e) {
 		console.error(`[approval-modes] Failed to save config: ${e instanceof Error ? e.message : String(e)}`);
 	}
 }
 
 function ensureConfigExists(): void {
-	const p = configPath();
-	if (!existsSync(p)) {
-		const fs = require("node:fs");
-		fs.mkdirSync(join(p, ".."), { recursive: true });
-		writeFileSync(p, JSON.stringify(DEFAULT_CONFIG, null, 2));
+	if (!existsSync(configPath())) {
+		ensureDir();
+		writeFileSync(configPath(), JSON.stringify(DEFAULT_CONFIG, null, 2));
 	}
 }
 
@@ -235,7 +250,8 @@ function matchesToolRule(rule: PatternRule, toolName: string, filePath?: string)
 export function checkPermissionRule(
 	rules: string[],
 	event: { toolName: string },
-	input: Record<string, unknown>
+	input: Record<string, unknown>,
+	options?: { deny?: boolean }
 ): "allowed" | "blocked" | "ask" {
 	for (const ruleStr of rules) {
 		try {
@@ -244,11 +260,11 @@ export function checkPermissionRule(
 			if (rule.tool.toLowerCase() !== event.toolName.toLowerCase()) continue;
 			if (rule.args) {
 				const inputStr = JSON.stringify(input);
-				if (inputStr.includes(rule.args.slice(1, -1))) return "allowed";
+				if (inputStr.includes(rule.args.slice(1, -1))) return options?.deny ? "blocked" : "allowed";
 				continue;
 			}
 			const filePath = input.path as string | undefined;
-			if (filePath && isGitignorePattern(rule.pattern, filePath)) return "allowed";
+			if (filePath && isGitignorePattern(rule.pattern, filePath)) return options?.deny ? "blocked" : "allowed";
 		} catch (e) {
 			console.error(`[approval-modes] Error checking permission rule: ${e instanceof Error ? e.message : String(e)}`);
 		}
@@ -269,7 +285,7 @@ export function checkStrictMode(
 export function modeLabel(mode: ApprovalMode): string {
 	switch (mode) {
 		case "yolo": return "🔓 YOLO";
-		case "approved": return "🔒 Approved";
+		case "read-only": return "🔒 Read-Only";
 		case "strict": return "🛡 Strict";
 	}
 }
@@ -309,7 +325,7 @@ const factory: ExtensionFactory = async (api) => {
 			const input = event.input as Record<string, unknown>;
 			const command = (input.command as string) ?? "";
 
-			if (config.mode === "approved") {
+			if (config.mode === "read-only") {
 				const analysis = analyzeBashCommand(command, config);
 
 				if (analysis === "safe") {
@@ -355,7 +371,19 @@ const factory: ExtensionFactory = async (api) => {
 		const input = event.input as Record<string, unknown>;
 		const filePath = (input.path as string) ?? "unknown";
 
-		// Check allow rules first
+		// Check deny rules first (deny overrides allow)
+		const denyResult = checkPermissionRule(
+			config.permissions.deny,
+			{ toolName: event.toolName },
+			input,
+			{ deny: true }
+		);
+		if (denyResult === "blocked") {
+			approvedCalls.add(event.toolCallId);
+			return { block: true, reason: `Blocked by deny rule: ${filePath}` };
+		}
+
+		// Check allow rules
 		const permResult = checkPermissionRule(
 			config.permissions.allow,
 			{ toolName: event.toolName },
@@ -364,17 +392,6 @@ const factory: ExtensionFactory = async (api) => {
 		if (permResult === "allowed") {
 			approvedCalls.add(event.toolCallId);
 			return undefined;
-		}
-
-		// Check deny rules
-		const denyResult = checkPermissionRule(
-			config.permissions.deny,
-			{ toolName: event.toolName },
-			input
-		);
-		if (denyResult === "blocked") {
-			approvedCalls.add(event.toolCallId);
-			return { block: true, reason: `Blocked by deny rule: ${filePath}` };
 		}
 
 		// Default: ask
@@ -396,7 +413,7 @@ const factory: ExtensionFactory = async (api) => {
 	api.registerShortcut(config.shortcut, {
 		description: "Cycle approval mode",
 		handler: async (ctx) => {
-			const MODES: ApprovalMode[] = ["yolo", "approved", "strict"];
+			const MODES: ApprovalMode[] = ["yolo", "read-only", "strict"];
 			const currentIdx = MODES.indexOf(config.mode);
 			config.mode = MODES[(currentIdx + 1) % MODES.length];
 			saveConfig({ ...config });
@@ -408,15 +425,15 @@ const factory: ExtensionFactory = async (api) => {
 
 	// Commands
 	api.registerCommand("approval", {
-		description: "Switch approval mode (yolo|approved|strict)",
+		description: "Switch approval mode (yolo|read-only|strict)",
 		handler: async (args, ctx) => {
 			if (!args) {
-				ctx.ui.notify(`${modeLabel(config.mode)} — yolo|approved|strict`, "info");
+				ctx.ui.notify(`${modeLabel(config.mode)} — yolo|read-only|strict`, "info");
 				return;
 			}
-			const mode = args.trim().toLowerCase() as ApprovalMode;
-			if (!(["yolo", "approved", "strict"] as ApprovalMode[]).includes(mode)) {
-				ctx.ui.notify(`Unknown mode: ${args}. Use: yolo, approved, strict`, "error");
+			const mode = resolveMode(args);
+			if (mode !== "yolo" && mode !== "read-only" && mode !== "strict") {
+				ctx.ui.notify(`Unknown mode: ${args}. Use: yolo, read-only, strict`, "error");
 				return;
 			}
 			config.mode = mode;
@@ -462,6 +479,15 @@ const factory: ExtensionFactory = async (api) => {
 			cachedConfig = config;
 			ctx.ui.notify(`Shortcut changed to: ${newShortcut}`, "info");
 			ctx.ui.notify("Run /reload to activate the new shortcut", "warning");
+		},
+	});
+	api.registerCommand("approval-reload", {
+		description: "Reload config from disk",
+		handler: async (_args, ctx) => {
+			cachedConfig = mergeConfig(loadConfigRaw());
+			config = getConfig();
+			ctx.ui.setStatus("approval", modeLabel(config.mode));
+			ctx.ui.notify(`Config reloaded: ${modeLabel(config.mode)}`, "info");
 		},
 	});
 };

@@ -1,7 +1,7 @@
 {
   "name": "@m62624/approval-modes",
   "version": "1.0.0",
-  "description": "Approval modes for pi: YOLO, Approved, Strict",
+  "description": "Approval modes for pi: YOLO, Read-Only, Strict",
   "keywords": [
     "pi-package"
   ],
