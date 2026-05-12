@@ -120,14 +120,6 @@ const defaultConfig = {
 			"tee\\s+\\S+",
 			"echo\\s+.*>\\s+",
 			"printf\\s+.*>\\s+",
-			"python\\w*\\s+.*-c\\s+",
-			"node\\s+.*-e\\s+",
-			"bash\\s+.*-c\\s+",
-			"sh\\s+.*-c\\s+",
-			"zsh\\s+.*-c\\s+",
-			"perl\\s+.*-e\\s+",
-			"ruby\\s+.*-e\\s+",
-			"php\\s+.*-r\\s+",
 		],
 	},
 };
@@ -602,6 +594,30 @@ describe("analyzeBashCommand", () => {
 
 	it("dangerous: node -e", () => {
 		expect(analyzeBashCommand("node -e 'console.log(1)'", defaultConfig)).toBe("dangerous");
+	});
+
+	it("dangerous: bash -c", () => {
+		expect(analyzeBashCommand("bash -c 'echo test'", defaultConfig)).toBe("dangerous");
+	});
+
+	it("dangerous: sh -c", () => {
+		expect(analyzeBashCommand("sh -c 'echo test'", defaultConfig)).toBe("dangerous");
+	});
+
+	it("dangerous: zsh -c", () => {
+		expect(analyzeBashCommand("zsh -c 'echo test'", defaultConfig)).toBe("dangerous");
+	});
+
+	it("dangerous: perl -e", () => {
+		expect(analyzeBashCommand("perl -e 'print 1'", defaultConfig)).toBe("dangerous");
+	});
+
+	it("dangerous: ruby -e", () => {
+		expect(analyzeBashCommand("ruby -e 'puts 1'", defaultConfig)).toBe("dangerous");
+	});
+
+	it("dangerous: php -r", () => {
+		expect(analyzeBashCommand("php -r 'echo 1'", defaultConfig)).toBe("dangerous");
 	});
 
 	it("ask: unknown command", () => {

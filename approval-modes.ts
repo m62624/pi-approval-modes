@@ -142,14 +142,6 @@ const DEFAULT_PERMISSIONS: Config["permissions"] = {
 		"tee\\s+\\S+",
 		"echo\\s+.*>\\s+",
 		"printf\\s+.*>\\s+",
-		"python\\w*\\s+.*-c\\s+",
-		"node\\s+.*-e\\s+",
-		"bash\\s+.*-c\\s+",
-		"sh\\s+.*-c\\s+",
-		"zsh\\s+.*-c\\s+",
-		"perl\\s+.*-e\\s+",
-		"ruby\\s+.*-e\\s+",
-		"php\\s+.*-r\\s+",
 	],
 };
 
@@ -232,6 +224,31 @@ function getConfig(): Config {
 	return cachedConfig;
 }
 
+// ─── Regex cache ─────────────────────────────────────────────────────────────
+
+function compilePatterns(patterns: string[]): RegExp[] {
+	return patterns.map(p => new RegExp(p));
+}
+
+let cachedAllow: RegExp[] = [];
+let cachedDeny: RegExp[] = [];
+let cachedAsk: RegExp[] = [];
+
+function getCompiledPatterns(permissions: Config["permissions"]): { allow: RegExp[]; deny: RegExp[]; ask: RegExp[] } {
+	// Only recompile if patterns changed (simple length check)
+	if (
+		cachedAllow.length === permissions.allow.length &&
+		cachedDeny.length === permissions.deny.length &&
+		cachedAsk.length === permissions.ask.length
+	) {
+		return { allow: cachedAllow, deny: cachedDeny, ask: cachedAsk };
+	}
+	cachedAllow = compilePatterns(permissions.allow);
+	cachedDeny = compilePatterns(permissions.deny);
+	cachedAsk = compilePatterns(permissions.ask);
+	return { allow: cachedAllow, deny: cachedDeny, ask: cachedAsk };
+}
+
 // ─── Pattern helpers ─────────────────────────────────────────────────────────
 
 export function isGitignorePattern(pattern: string, pathStr: string): boolean {
@@ -261,8 +278,8 @@ export type BashAnalysis = "safe" | "dangerous" | "pipe-bypass";
  *
  * Order of checks:
  *   1. deny → BLOCKED
- *   2. allow → SAFE
- *   3. ask → ASK
+ *   2. ask → ASK
+ *   3. allow → SAFE
  *   4. default → ASK
  */
 export function analyzeBashCommand(command: string, config: Config): BashAnalysis {
@@ -291,23 +308,25 @@ export function analyzeBashCommand(command: string, config: Config): BashAnalysi
 		}
 	}
 
+	const { deny, ask, allow } = getCompiledPatterns(config.permissions);
+
 	// 1. Check deny patterns
-	for (const pattern of config.permissions.deny) {
-		if (new RegExp(pattern).test(command)) {
+	for (const re of deny) {
+		if (re.test(command)) {
 			return "dangerous";
 		}
 	}
 
 	// 2. Check ask patterns (before allow, so redirects get asked)
-	for (const pattern of config.permissions.ask) {
-		if (new RegExp(pattern).test(command)) {
+	for (const re of ask) {
+		if (re.test(command)) {
 			return "pipe-bypass";
 		}
 	}
 
 	// 3. Check allow patterns
-	for (const pattern of config.permissions.allow) {
-		if (new RegExp(pattern).test(command)) {
+	for (const re of allow) {
+		if (re.test(command)) {
 			return "safe";
 		}
 	}
