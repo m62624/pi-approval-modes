@@ -11,7 +11,7 @@
  */
 
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -107,7 +107,7 @@ function mergeConfig(loaded: Config | null): Config {
 }
 
 function ensureDir(): void {
-	mkdirSync(configPath().slice(0, -"approval-modes.json".length), { recursive: true });
+	mkdirSync(dirname(configPath()), { recursive: true });
 }
 
 function saveConfig(cfg: Config) {
@@ -384,7 +384,7 @@ const factory: ExtensionFactory = async (api) => {
 		if (!approved) {
 			approvedCalls.add(event.toolCallId);
 			blockedCommands.push({ tool: event.toolName, reason: summary, timestamp: Date.now() });
-					if (blockedCommands.length > 1000) blockedCommands.shift();
+			if (blockedCommands.length > 1000) blockedCommands.shift();
 			return { block: true, reason: "User denied approval" };
 		}
 		approvedCalls.add(event.toolCallId);
