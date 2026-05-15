@@ -63,6 +63,16 @@ const factory: ExtensionFactory = async (api) => {
 						timestamp: Date.now(),
 					});
 					if (blockedCommands.length > 1000) blockedCommands.shift();
+
+					api.sendMessage({
+						customType: 'blocked-command',
+						content: `⛔ Bash command blocked: ${command}\n\nWhy did you choose this command? Is it really the best approach?\n\nIf yes — explain to the user how to run it manually in their shell.\nOtherwise — suggest an alternative.`,
+						display: true,
+					}, {
+						deliverAs: 'steer',
+						triggerTurn: false,
+					});
+
 					return { block: true, reason: 'Command blocked by deny rules' };
 				}
 
