@@ -55,10 +55,19 @@ const factory: ExtensionFactory = async (api) => {
 					return undefined;
 				}
 
-				const summary =
-					analysis === 'pipe-bypass'
-						? `⚠ Pipe bypass: ${command}`
-						: `bash: ${command}`;
+				if (analysis === 'dangerous') {
+					approvedCalls.add(event.toolCallId);
+					blockedCommands.push({
+						tool: 'bash',
+						reason: `bash: ${command}`,
+						timestamp: Date.now(),
+					});
+					if (blockedCommands.length > 1000) blockedCommands.shift();
+					return { block: true, reason: 'Command blocked by deny rules' };
+				}
+
+				// pipe-bypass = ask
+				const summary = `⚠ Pipe bypass: ${command}`;
 				const approved = await ctx.ui.confirm('Approve bash command', summary, {
 					timeout: 120000,
 					signal: ctx.signal,
