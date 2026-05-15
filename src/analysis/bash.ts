@@ -17,14 +17,27 @@ export function analyzeBashCommand(
 	// Pipe analysis
 	const pipeParts = command.split('|').map((s) => s.trim());
 	if (pipeParts.length > 1) {
+		// Check each pipe part individually
 		for (const part of pipeParts) {
 			const tool = part.trim().split(/\s+/)[0];
+
+			// base64 decode in pipe
 			if (tool === 'base64') {
 				const args = part.trim().split(/\s+/).slice(1);
 				if (args.includes('-d') || args.includes('--decode')) {
 					return 'pipe-bypass';
 				}
 			}
+
+			// tee in pipe — always ask
+			if (tool === 'tee') {
+				return 'pipe-bypass';
+			}
+
+			// Check each part against deny/ask patterns
+			const partAnalysis = analyzeBashCommand(part, config);
+			if (partAnalysis === 'dangerous') return 'dangerous';
+			if (partAnalysis === 'pipe-bypass') return 'pipe-bypass';
 		}
 	}
 

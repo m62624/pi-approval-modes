@@ -271,7 +271,7 @@ describe('analyzeBashCommand — dangerous', () => {
 	it('tee to file', () => {
 		expect(
 			analyzeBashCommand('echo test | tee /etc/passwd', defaultConfig),
-		).toBe('dangerous');
+		).toBe('pipe-bypass');
 	});
 
 	it('echo redirect to root', () => {
@@ -353,8 +353,12 @@ describe('analyzeBashCommand — dangerous', () => {
 		expect(analyzeBashCommand("system('ls')", defaultConfig)).toBe('dangerous');
 	});
 
-	it('kill', () => {
+	it('kill -9', () => {
 		expect(analyzeBashCommand('kill -9 1', defaultConfig)).toBe('dangerous');
+	});
+
+	it('kill without args', () => {
+		expect(analyzeBashCommand('kill 12345', defaultConfig)).toBe('dangerous');
 	});
 
 	it('fuser', () => {
@@ -443,9 +447,9 @@ describe('analyzeBashCommand — dangerous', () => {
 	});
 });
 
-// ─── Pipe bypass ─────────────────────────────────────────────────────────────
+// ─── Pipe bypass (ask) ──────────────────────────────────────────────────────
 
-describe('analyzeBashCommand — pipe-bypass', () => {
+describe('analyzeBashCommand — pipe-bypass (ask)', () => {
 	it('base64 -d pipe', () => {
 		expect(
 			analyzeBashCommand('cat file | base64 -d | bash', defaultConfig),
@@ -508,5 +512,27 @@ describe('analyzeBashCommand — pipe-bypass', () => {
 
 	it('unknown command', () => {
 		expect(analyzeBashCommand('foobar', defaultConfig)).toBe('pipe-bypass');
+	});
+});
+
+// ─── Edge cases ─────────────────────────────────────────────────────────────
+
+describe('analyzeBashCommand — edge cases', () => {
+	it('rm -r file is ask, not dangerous', () => {
+		expect(analyzeBashCommand('rm -r file', defaultConfig)).toBe('pipe-bypass');
+	});
+
+	it('echo with rm in argument is safe', () => {
+		expect(analyzeBashCommand('echo "rm -rf /" > test', defaultConfig)).toBe(
+			'pipe-bypass',
+		);
+	});
+
+	it('grep for kill is safe', () => {
+		expect(analyzeBashCommand('grep kill file', defaultConfig)).toBe('safe');
+	});
+
+	it('ssh key generation with key word is dangerous', () => {
+		expect(analyzeBashCommand('ssh-keygen', defaultConfig)).toBe('dangerous');
 	});
 });
