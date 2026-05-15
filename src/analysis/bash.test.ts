@@ -440,10 +440,16 @@ describe('analyzeBashCommand — dangerous', () => {
 		);
 	});
 
-	it('chaining with ||', () => {
+	it('chaining with || — safe parts', () => {
 		expect(analyzeBashCommand('echo a || echo b', defaultConfig)).toBe(
-			'dangerous',
+			'safe',
 		);
+	});
+
+	it('chaining with || — dangerous part', () => {
+		expect(
+			analyzeBashCommand('echo a || rm -rf /', defaultConfig),
+		).toBe('dangerous');
 	});
 });
 

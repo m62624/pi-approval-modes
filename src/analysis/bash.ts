@@ -1,6 +1,62 @@
 import type { BashAnalysis, Config } from '../types';
 import { getCompiledPatterns } from './patterns';
 
+function splitChain(cmd: string): string[] {
+	const parts: string[] = [];
+	let current = '';
+	let i = 0;
+
+	while (i < cmd.length) {
+		const ch = cmd[i];
+
+		// Handle quotes — skip over quoted strings
+		if (ch === '"' || ch === "'") {
+			const quote = ch;
+			current += ch;
+			i++;
+			while (i < cmd.length && cmd[i] !== quote) {
+				if (cmd[i] === '\\') {
+					current += cmd[i];
+					i++;
+				}
+				current += cmd[i];
+				i++;
+			}
+			if (i < cmd.length) {
+				current += cmd[i]; // closing quote
+				i++;
+			}
+			continue;
+		}
+
+		// Check for &&, ||, ;
+		if (ch === '&' && cmd[i + 1] === '&') {
+			if (current.trim()) parts.push(current.trim());
+			current = '';
+			i += 2;
+			continue;
+		}
+		if (ch === '|' && cmd[i + 1] === '|') {
+			if (current.trim()) parts.push(current.trim());
+			current = '';
+			i += 2;
+			continue;
+		}
+		if (ch === ';') {
+			if (current.trim()) parts.push(current.trim());
+			current = '';
+			i++;
+			continue;
+		}
+
+		current += ch;
+		i++;
+	}
+
+	if (current.trim()) parts.push(current.trim());
+	return parts;
+}
+
 export function analyzeBashCommand(
 	command: string,
 	config: Config,
@@ -9,9 +65,15 @@ export function analyzeBashCommand(
 
 	if (!command) return 'safe';
 
-	// Chaining operators: always dangerous
-	if (/\|\|/.test(command) || /&&/.test(command) || /;/.test(command)) {
-		return 'dangerous';
+	// Split by chaining operators (&&, ||, ;) — check each part individually
+	const chainParts = splitChain(command);
+	if (chainParts.length > 1) {
+		for (const part of chainParts) {
+			const partAnalysis = analyzeBashCommand(part, config);
+			if (partAnalysis === 'dangerous') return 'dangerous';
+			if (partAnalysis === 'pipe-bypass') return 'pipe-bypass';
+		}
+		return 'safe';
 	}
 
 	// Pipe analysis
