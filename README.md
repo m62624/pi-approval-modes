@@ -117,7 +117,7 @@ cd pi-approval-modes
 npm run build      # TypeScript compilation
 npm run check      # lint + format check
 npm run format     # auto-format
-npm run test       # run 137 tests
+npm run test       # run 140 tests
 ```
 
 ## License
