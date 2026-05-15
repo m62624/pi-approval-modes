@@ -242,6 +242,7 @@ const factory: ExtensionFactory = async (api) => {
 		description: 'Reload config from disk',
 		handler: async (_args, ctx) => {
 			config = loadConfig() ?? config;
+			resetPatternCache();
 			ctx.ui.setStatus(EXTENSION_NAME, modeLabel(config.mode));
 			ctx.ui.notify(`Config reloaded: ${modeLabel(config.mode)}`, 'info');
 		},
