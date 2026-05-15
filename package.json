@@ -5,11 +5,11 @@
 	"keywords": [
 		"pi-package"
 	],
-	"main": "approval-modes.ts",
 	"type": "module",
+	"main": "src/index.ts",
 	"pi": {
 		"extensions": [
-			"approval-modes.ts"
+			"src/index.ts"
 		]
 	},
 	"repository": {
@@ -21,12 +21,18 @@
 		"access": "public"
 	},
 	"scripts": {
+		"build": "tsc",
 		"check": "biome check .",
 		"format": "biome format --write .",
 		"test": "vitest run"
 	},
+	"dependencies": {
+		"@earendil-works/pi-coding-agent": "latest"
+	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.15",
+		"@types/node": "^24.0.0",
+		"typescript": "^6.0.3",
 		"vitest": "^4.1.6"
 	}
 }

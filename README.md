@@ -14,22 +14,44 @@ No approvals, no checks. All tool calls execute immediately.
 ### 🛡 Strict
 Always asks for confirmation before executing any tool call — bash, write, edit, anything. No exceptions.
 
-## Bash Analysis (Read-Only mode)
+## How it works
 
-Uses a unified regex-based permission system (`permissions.allow` / `deny` / `ask`):
+Two independent systems handle approvals:
 
-1. **Deny** → blocked (e.g. `rm -rf`, interpreters with `-c`/`-e`, system writes to `/etc/`, `/proc/`, etc.)
+### 1. Bash analysis — regex-based
+
+When the agent runs a bash command, it's checked against three regex lists (`permissions.allow` / `deny` / `ask`):
+
+1. **Deny** → blocked (e.g. `rm -rf`, interpreters with `-c`/`-e`, writes to `/etc/`, `/proc/`, etc.)
 2. **Ask** → confirmation required (e.g. `rm file`, `echo > file`, `cp src dest`, pipes with `tee`)
 3. **Allow** → auto-approved (e.g. `ls`, `cat`, `grep`, `find`, `pwd`, `free`, `df`)
 4. **Default** → ask (unknown commands)
 
 Redirects (`>`, `>>`) always trigger confirmation, even for safe commands like `echo`.
 
-### Pipe bypass detection
-Commands like `cat file | base64 -d | bash` are detected as pipe bypasses and require approval.
+Special detection:
+- **Pipe bypass:** `cat file | base64 -d | bash` → detected and blocked
+- **Chaining:** `&&`, `||`, `;` → treated as dangerous
 
-### Chaining detection
-Commands with `&&`, `||`, or `;` are treated as dangerous.
+### 2. File permissions — path patterns
+
+For write/edit tools, rules can use path patterns (gitignore-style):
+
+```json
+{
+  "permissions": {
+    "allow": ["Write(./tmp/**)", "Read(.env)"],
+    "deny": ["Write(.env)"]
+  }
+}
+```
+
+Pattern syntax:
+- `*.txt` — matches any `.txt` file (no directory crossing)
+- `**/file.txt` — matches `file.txt` anywhere in the tree
+- `./tmp/**` — matches anything under `./tmp/`
+
+This is a separate system from bash regex — it only applies to `write`/`edit` tool calls. By default, all file operations ask for confirmation.
 
 ## Commands
 
@@ -52,7 +74,7 @@ Commands with `&&`, `||`, or `;` are treated as dangerous.
 
 ## Configuration
 
-Config file: `~/.pi/agent/extensions/approval-modes.json`
+Config file: `~/.pi/agent/extensions/approval-modes/settings.json`
 
 ```json
 {
@@ -68,8 +90,8 @@ Config file: `~/.pi/agent/extensions/approval-modes.json`
 
 - `mode` — approval mode (`yolo`, `read-only`, `strict`)
 - `shortcut` — keybinding to cycle modes
-- `permissions.allow` — regex patterns for auto-approved commands
-- `permissions.deny` — regex patterns for auto-blocked commands
+- `permissions.allow` — regex patterns for auto-approved bash commands
+- `permissions.deny` — regex patterns for auto-blocked bash commands
 - `permissions.ask` — regex patterns that trigger confirmation
 
 Patterns are checked in order: **deny → ask → allow → default**.
@@ -92,14 +114,11 @@ pi remove /path/to/pi-approval-modes
 
 ```bash
 cd pi-approval-modes
+npm run build      # TypeScript compilation
 npm run check      # lint + format check
 npm run format     # auto-format
-npm run test       # run 129 tests
+npm run test       # run 127 tests
 ```
-
-## AI Generation
-
-This project was generated with Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf
 
 ## License
 
