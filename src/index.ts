@@ -39,45 +39,46 @@ const factory: ExtensionFactory = async (api) => {
 	});
 
 	api.on('tool_call', async (event, ctx) => {
-		if (config.mode === 'yolo') return undefined;
-		if (approvedCalls.has(event.toolCallId)) return undefined;
-
 		// === BASH TOOL ===
 		if (event.toolName === 'bash') {
 			const input = event.input as Record<string, unknown>;
 			const command = (input.command as string) ?? '';
+			const analysis = analyzeBashCommand(command, config);
+
+			if (analysis === 'dangerous') {
+				approvedCalls.add(event.toolCallId);
+				blockedCommands.push({
+					tool: 'bash',
+					reason: `bash: ${command}`,
+					timestamp: Date.now(),
+				});
+				if (blockedCommands.length > 1000) blockedCommands.shift();
+
+				api.sendMessage(
+					{
+						customType: 'blocked-command',
+						content: `⛔ Bash command blocked: ${command}\n\nNote: this command was blocked by deny rules.\n\nWhy did you choose this command? Is it really the best approach?\n\nIf yes — explain to the user how to run it manually in their shell.\nOtherwise — suggest an alternative.`,
+						display: false,
+					},
+					{
+						deliverAs: 'steer',
+						triggerTurn: false,
+					},
+				);
+
+				return { block: true, reason: 'Command blocked by deny rules' };
+			}
+
+			if (config.mode === 'yolo' || approvedCalls.has(event.toolCallId))
+				return undefined;
 
 			if (config.mode === 'read-only') {
-				const analysis = analyzeBashCommand(command, config);
-
 				if (analysis === 'safe') {
 					approvedCalls.add(event.toolCallId);
 					return undefined;
 				}
 
-				if (analysis === 'dangerous') {
-					approvedCalls.add(event.toolCallId);
-					blockedCommands.push({
-						tool: 'bash',
-						reason: `bash: ${command}`,
-						timestamp: Date.now(),
-					});
-					if (blockedCommands.length > 1000) blockedCommands.shift();
-
-					api.sendMessage({
-						customType: 'blocked-command',
-						content: `⛔ Bash command blocked: ${command}\n\nNote: this command was blocked by deny rules.\n\nWhy did you choose this command? Is it really the best approach?\n\nIf yes — explain to the user how to run it manually in their shell.\nOtherwise — suggest an alternative.`,
-						display: false,
-					}, {
-						deliverAs: 'steer',
-						triggerTurn: false,
-					});
-
-					return { block: true, reason: 'Command blocked by deny rules' };
-				}
-
-				// pipe-bypass = ask
-				const summary = `⚠ Pipe bypass: ${command}`;
+				const summary = `bash: ${command}`;
 				const approved = await ctx.ui.confirm('Approve bash command', summary, {
 					timeout: 120000,
 					signal: ctx.signal,
@@ -135,14 +136,19 @@ const factory: ExtensionFactory = async (api) => {
 			return { block: true, reason: `Blocked by deny rule: ${filePath}` };
 		}
 
-		const permResult = checkPermissionRule(
-			config.permissions.allow,
-			{ toolName: event.toolName },
-			input,
-		);
-		if (permResult === 'allowed') {
-			approvedCalls.add(event.toolCallId);
+		if (config.mode === 'yolo' || approvedCalls.has(event.toolCallId))
 			return undefined;
+
+		if (config.mode !== 'strict') {
+			const permResult = checkPermissionRule(
+				config.permissions.allow,
+				{ toolName: event.toolName },
+				input,
+			);
+			if (permResult === 'allowed') {
+				approvedCalls.add(event.toolCallId);
+				return undefined;
+			}
 		}
 
 		const summary =

@@ -19,7 +19,12 @@ export function getCompiledPatterns(permissions: Permissions): {
 	deny: RegExp[];
 	ask: RegExp[];
 } {
-	if (cachedConfig && arraysEqual(cachedConfig.allow, permissions.allow) && arraysEqual(cachedConfig.deny, permissions.deny) && arraysEqual(cachedConfig.ask, permissions.ask)) {
+	if (
+		cachedConfig &&
+		arraysEqual(cachedConfig.allow, permissions.allow) &&
+		arraysEqual(cachedConfig.deny, permissions.deny) &&
+		arraysEqual(cachedConfig.ask, permissions.ask)
+	) {
 		return { allow: cachedAllow, deny: cachedDeny, ask: cachedAsk };
 	}
 

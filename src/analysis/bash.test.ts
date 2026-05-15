@@ -271,7 +271,7 @@ describe('analyzeBashCommand — dangerous', () => {
 	it('tee to file', () => {
 		expect(
 			analyzeBashCommand('echo test | tee /etc/passwd', defaultConfig),
-		).toBe('pipe-bypass');
+		).toBe('dangerous');
 	});
 
 	it('echo redirect to root', () => {
@@ -434,6 +434,15 @@ describe('analyzeBashCommand — dangerous', () => {
 		);
 	});
 
+	it('chaining blocks denied command after unknown command', () => {
+		expect(
+			analyzeBashCommand(
+				'git status && rm -rf /tmp/test-danger-file',
+				defaultConfig,
+			),
+		).toBe('dangerous');
+	});
+
 	it('chaining with semicolon', () => {
 		expect(analyzeBashCommand('echo a ; rm -rf /', defaultConfig)).toBe(
 			'dangerous',
@@ -441,15 +450,13 @@ describe('analyzeBashCommand — dangerous', () => {
 	});
 
 	it('chaining with || — safe parts', () => {
-		expect(analyzeBashCommand('echo a || echo b', defaultConfig)).toBe(
-			'safe',
-		);
+		expect(analyzeBashCommand('echo a || echo b', defaultConfig)).toBe('safe');
 	});
 
 	it('chaining with || — dangerous part', () => {
-		expect(
-			analyzeBashCommand('echo a || rm -rf /', defaultConfig),
-		).toBe('dangerous');
+		expect(analyzeBashCommand('echo a || rm -rf /', defaultConfig)).toBe(
+			'dangerous',
+		);
 	});
 });
 
@@ -498,6 +505,18 @@ describe('analyzeBashCommand — pipe-bypass (ask)', () => {
 		);
 	});
 
+	it('redirect from otherwise read-only command asks', () => {
+		expect(
+			analyzeBashCommand('grep foo file.txt > out.txt', defaultConfig),
+		).toBe('pipe-bypass');
+	});
+
+	it('redirect from otherwise read-only command to protected path blocks', () => {
+		expect(
+			analyzeBashCommand('grep foo file.txt > /etc/out', defaultConfig),
+		).toBe('dangerous');
+	});
+
 	it('append to file', () => {
 		expect(analyzeBashCommand('echo test >> file.txt', defaultConfig)).toBe(
 			'pipe-bypass',
@@ -518,6 +537,12 @@ describe('analyzeBashCommand — pipe-bypass (ask)', () => {
 
 	it('unknown command', () => {
 		expect(analyzeBashCommand('foobar', defaultConfig)).toBe('pipe-bypass');
+	});
+
+	it('find -delete asks despite find being read-only by default', () => {
+		expect(analyzeBashCommand('find . -name tmp -delete', defaultConfig)).toBe(
+			'pipe-bypass',
+		);
 	});
 });
 

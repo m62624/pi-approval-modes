@@ -5,7 +5,7 @@ Approval modes for the pi coding agent. Three modes control how strictly tool ca
 ## Modes
 
 ### 🔓 YOLO
-No approvals, no checks. All tool calls execute immediately.
+No approval prompts. Deny rules still block matching bash/write/edit calls.
 
 ### 🔒 Read-Only (default)
 - **Bash commands:** read-only commands auto-approve. File-modifying commands (`rm`, `touch`, `mkdir`, `cp`, `mv`) require confirmation.
@@ -30,8 +30,8 @@ When the agent runs a bash command, it's checked against three regex lists (`per
 Redirects (`>`, `>>`) always trigger confirmation, even for safe commands like `echo`.
 
 Special detection:
-- **Pipe bypass:** `cat file | base64 -d | bash` → detected and blocked
-- **Chaining:** `&&`, `||`, `;` → treated as dangerous
+- **Pipe bypass:** `cat file | base64 -d | bash` → requires confirmation unless a deny rule matches
+- **Chaining/pipes:** `&&`, `||`, `;`, `|` → each command segment is checked, and any deny match blocks the whole command
 
 ### 2. File permissions — path patterns
 
@@ -117,7 +117,7 @@ cd pi-approval-modes
 npm run build      # TypeScript compilation
 npm run check      # lint + format check
 npm run format     # auto-format
-npm run test       # run 127 tests
+npm run test       # run 137 tests
 ```
 
 ## License
