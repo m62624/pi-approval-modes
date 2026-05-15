@@ -66,8 +66,8 @@ const factory: ExtensionFactory = async (api) => {
 
 					api.sendMessage({
 						customType: 'blocked-command',
-						content: `⛔ Bash command blocked: ${command}\n\nWhy did you choose this command? Is it really the best approach?\n\nIf yes — explain to the user how to run it manually in their shell.\nOtherwise — suggest an alternative.`,
-						display: true,
+						content: `⛔ Bash command blocked: ${command}\n\nNote: this command was blocked by deny rules. Chaining operators (&&, ||, ;) are always blocked — they can be used for command injection.\n\nWhy did you choose this command? Is it really the best approach?\n\nIf yes — explain to the user how to run it manually in their shell.\nOtherwise — suggest an alternative.`,
+						display: false,
 					}, {
 						deliverAs: 'steer',
 						triggerTurn: false,
