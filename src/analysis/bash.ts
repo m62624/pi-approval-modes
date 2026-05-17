@@ -9,7 +9,7 @@ function splitShellSegments(cmd: string): string[] {
 	while (i < cmd.length) {
 		const ch = cmd[i];
 
-		// Handle quotes — skip over quoted strings
+		// Handle quotes — skip over quoted strings.
 		if (ch === '"' || ch === "'") {
 			const quote = ch;
 			current += ch;
@@ -19,8 +19,10 @@ function splitShellSegments(cmd: string): string[] {
 					current += cmd[i];
 					i++;
 				}
-				current += cmd[i];
-				i++;
+				if (i < cmd.length) {
+					current += cmd[i];
+					i++;
+				}
 			}
 			if (i < cmd.length) {
 				current += cmd[i]; // closing quote
@@ -29,7 +31,7 @@ function splitShellSegments(cmd: string): string[] {
 			continue;
 		}
 
-		// Check for &&, ||, ;, |
+		// Check for &&, ||, ;, |.
 		if (ch === '&' && cmd[i + 1] === '&') {
 			if (current.trim()) parts.push(current.trim());
 			current = '';
@@ -70,12 +72,30 @@ function testPatterns(patterns: RegExp[], command: string): boolean {
 	});
 }
 
+function stripSafeNullRedirections(command: string): string {
+	return (
+		command
+			// POSIX: >/dev/null, 2>/dev/null, >>/dev/null, &>/dev/null.
+			// Windows: >NUL, 2>NUL.
+			.replace(
+				/(^|\s)(?:\d*>>?|&>|\d*<)\s*(?:['"]?\/dev\/null['"]?|['"]?nul['"]?)(?=\s|$)/gi,
+				' ',
+			)
+			// File descriptor duplication, usually used with a null redirect: 2>&1.
+			.replace(/(^|\s)\d*>&\d+(?=\s|$)/g, ' ')
+			.replace(/\s+/g, ' ')
+			.trim()
+	);
+}
+
 function analyzeSimpleCommand(command: string, config: Config): BashAnalysis {
 	const { deny, ask, allow } = getCompiledPatterns(config.permissions);
+	const normalizedCommand = stripSafeNullRedirections(command);
 
-	if (testPatterns(deny, command)) return 'dangerous';
-	if (testPatterns(ask, command)) return 'pipe-bypass';
-	if (testPatterns(allow, command)) return 'safe';
+	if (!normalizedCommand) return 'safe';
+	if (testPatterns(deny, normalizedCommand)) return 'dangerous';
+	if (testPatterns(ask, normalizedCommand)) return 'pipe-bypass';
+	if (testPatterns(allow, normalizedCommand)) return 'safe';
 
 	return 'pipe-bypass';
 }
@@ -88,11 +108,14 @@ export function analyzeBashCommand(
 
 	if (!command) return 'safe';
 
+	const normalizedCommand = stripSafeNullRedirections(command);
+	if (!normalizedCommand) return 'safe';
+
 	const { deny } = getCompiledPatterns(config.permissions);
-	if (testPatterns(deny, command)) return 'dangerous';
+	if (testPatterns(deny, normalizedCommand)) return 'dangerous';
 
 	// Split by shell operators and check every executable segment individually.
-	const shellParts = splitShellSegments(command);
+	const shellParts = splitShellSegments(normalizedCommand);
 	if (shellParts.length > 1) {
 		let result: BashAnalysis = 'safe';
 		for (const part of shellParts) {
@@ -103,13 +126,5 @@ export function analyzeBashCommand(
 		return result;
 	}
 
-	const tool = command.split(/\s+/)[0];
-	if (tool === 'base64') {
-		const args = command.split(/\s+/).slice(1);
-		if (args.includes('-d') || args.includes('--decode')) {
-			return 'pipe-bypass';
-		}
-	}
-
-	return analyzeSimpleCommand(command, config);
+	return analyzeSimpleCommand(normalizedCommand, config);
 }

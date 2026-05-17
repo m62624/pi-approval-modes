@@ -52,7 +52,7 @@ describe('handleToolCall', () => {
 		const ctx = createContext();
 
 		const result = await handleToolCall(
-			bashEvent('git status && rm -rf /tmp/test-danger-file'),
+			bashEvent('git status && rm -rf /'),
 			ctx,
 			runtime,
 		);
