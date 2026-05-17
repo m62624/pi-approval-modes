@@ -1,7 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { EXTENSION_NAME } from '../constants';
-import type { Config } from '../types';
+import type {
+	BashPolicyConfig,
+	BashRule,
+	BashRuleAction,
+	Config,
+	FilePermissions,
+} from '../types';
 import { createConfigPaths } from './paths';
 import { DEFAULT_CONFIG } from './schema';
 
@@ -25,32 +31,65 @@ function resolveMode(raw: string | undefined): Config['mode'] {
 		normalized === 'yolo' ||
 		normalized === 'read-only' ||
 		normalized === 'strict'
-	)
-		return normalized as Config['mode'];
+	) {
+		return normalized;
+	}
 	return 'read-only';
 }
 
+function resolveAction(
+	raw: string | undefined,
+	fallback: BashRuleAction,
+): BashRuleAction {
+	if (raw === 'allow' || raw === 'ask' || raw === 'deny') return raw;
+	return fallback;
+}
+
 function mergePermissions(
-	loaded: Config['permissions'] | undefined,
-): Config['permissions'] {
+	loaded: Partial<FilePermissions> = {},
+): FilePermissions {
 	return {
-		allow: loaded?.allow ?? [...DEFAULT_CONFIG.permissions.allow],
-		deny: loaded?.deny ?? [...DEFAULT_CONFIG.permissions.deny],
-		ask: loaded?.ask ?? [...DEFAULT_CONFIG.permissions.ask],
+		allow: Array.isArray(loaded.allow) ? loaded.allow : [],
+		deny: Array.isArray(loaded.deny) ? loaded.deny : [],
+		ask: Array.isArray(loaded.ask) ? loaded.ask : [],
 	};
 }
 
-function mergeConfig(loaded: Config | null): Config {
-	if (loaded) {
+function isBashRule(value: unknown): value is BashRule {
+	if (!value || typeof value !== 'object') return false;
+	const candidate = value as Partial<BashRule>;
+	return (
+		(candidate.action === 'allow' ||
+			candidate.action === 'ask' ||
+			candidate.action === 'deny') &&
+		!!candidate.match &&
+		typeof candidate.match === 'object'
+	);
+}
+
+function mergeBashPolicy(
+	loaded: Partial<BashPolicyConfig> = {},
+): BashPolicyConfig {
+	return {
+		rules: Array.isArray(loaded.rules) ? loaded.rules.filter(isBashRule) : [],
+		unknown: resolveAction(loaded.unknown, DEFAULT_CONFIG.bash.unknown),
+	};
+}
+
+function mergeConfig(loaded: Partial<Config> | null): Config {
+	if (!loaded) {
 		return {
-			mode: resolveMode(loaded.mode),
-			shortcut: loaded.shortcut ?? 'shift+tab',
-			permissions: mergePermissions(loaded.permissions),
+			...DEFAULT_CONFIG,
+			permissions: { ...DEFAULT_CONFIG.permissions },
+			bash: { ...DEFAULT_CONFIG.bash, rules: [] },
 		};
 	}
+
 	return {
-		...DEFAULT_CONFIG,
-		permissions: { ...DEFAULT_CONFIG.permissions },
+		mode: resolveMode(loaded.mode),
+		shortcut: loaded.shortcut ?? DEFAULT_CONFIG.shortcut,
+		permissions: mergePermissions(loaded.permissions),
+		bash: mergeBashPolicy(loaded.bash),
 	};
 }
 
@@ -59,7 +98,7 @@ export function loadConfig(): Config | null {
 	try {
 		if (!existsSync(paths.settings)) return null;
 		const raw = readFileSync(paths.settings, 'utf-8');
-		const loaded = JSON.parse(raw) as Config;
+		const loaded = JSON.parse(raw) as Partial<Config>;
 		return mergeConfig(loaded);
 	} catch (e) {
 		console.error(

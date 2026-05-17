@@ -1,6 +1,5 @@
 import type { ExtensionFactory } from '@earendil-works/pi-coding-agent';
 import { Key, type KeyId, parseKey } from '@earendil-works/pi-tui';
-import { resetPatternCache } from './analysis/patterns';
 import { ensureConfigExists, loadConfig, saveConfig } from './config/loader';
 import { DEFAULT_CONFIG } from './config/schema';
 import { EXTENSION_NAME } from './constants';
@@ -17,7 +16,6 @@ const factory: ExtensionFactory = async (api) => {
 	api.on('session_start', async (_event, ctx) => {
 		config = loadConfig() ?? config;
 		approvedCalls.clear();
-		resetPatternCache();
 		ctx.ui.setStatus(EXTENSION_NAME, modeLabel(config.mode));
 	});
 
@@ -125,7 +123,6 @@ const factory: ExtensionFactory = async (api) => {
 		description: 'Reload config from disk',
 		handler: async (_args, ctx) => {
 			config = loadConfig() ?? config;
-			resetPatternCache();
 			ctx.ui.setStatus(EXTENSION_NAME, modeLabel(config.mode));
 			ctx.ui.notify(`Config reloaded: ${modeLabel(config.mode)}`, 'info');
 		},

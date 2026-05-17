@@ -56,6 +56,35 @@ describe('loadConfig', () => {
 			mode: 'yolo',
 			shortcut: 'ctrl+shift+a',
 			permissions: { ...DEFAULT_CONFIG.permissions },
+			bash: { ...DEFAULT_CONFIG.bash, rules: [] },
+		});
+	});
+
+	it('loads bash AST rules from file', () => {
+		vi.mocked(existsSync).mockReturnValue(true);
+		vi.mocked(readFileSync).mockReturnValue(
+			JSON.stringify({
+				bash: {
+					unknown: 'allow',
+					rules: [
+						{
+							action: 'allow',
+							match: { command: 'cargo', args: { includes: ['check'] } },
+						},
+					],
+				},
+			}),
+		);
+
+		const result = loadConfig();
+		expect(result?.bash).toEqual({
+			unknown: 'allow',
+			rules: [
+				{
+					action: 'allow',
+					match: { command: 'cargo', args: { includes: ['check'] } },
+				},
+			],
 		});
 	});
 
