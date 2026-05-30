@@ -1,4 +1,4 @@
-# @m62624/approval-modes
+# Pi Approval Modes
 
 Approval modes for the Pi coding agent: YOLO, Read-Only, and Strict.
 
