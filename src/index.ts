@@ -12,10 +12,16 @@ const factory: ExtensionFactory = async (api) => {
 	let config: Config = loadConfig() ?? DEFAULT_CONFIG;
 	const approvedCalls = new Set<string>();
 	const blockedCommands: BlockedCommand[] = [];
+	const sessionState = {
+		deniedBatchId: undefined as string | undefined,
+		approvedBatchId: undefined as string | undefined,
+	};
 
 	api.on('session_start', async (_event, ctx) => {
 		config = loadConfig() ?? config;
 		approvedCalls.clear();
+		sessionState.deniedBatchId = undefined;
+		sessionState.approvedBatchId = undefined;
 		ctx.ui.setStatus(EXTENSION_NAME, modeLabel(config.mode));
 	});
 
@@ -34,6 +40,7 @@ const factory: ExtensionFactory = async (api) => {
 			config,
 			approvedCalls,
 			blockedCommands,
+			sessionState,
 		});
 	});
 

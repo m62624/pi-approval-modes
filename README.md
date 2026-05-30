@@ -307,7 +307,7 @@ Current local verification:
 ```text
 npm run check  ✅
 npm run build  ✅
-npm test       ✅ 122 tests passed
+npm test       ✅
 ```
 
 ## Security note
