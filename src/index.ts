@@ -2,7 +2,6 @@ import type {
 	ExtensionCommandContext,
 	ExtensionFactory,
 } from '@earendil-works/pi-coding-agent';
-import { type KeyId, parseKey } from '@earendil-works/pi-tui';
 import { ensureConfigExists, loadConfig, saveConfig } from './config/loader';
 import { DEFAULT_CONFIG } from './config/schema';
 import { EXTENSION_NAME } from './constants';
@@ -17,6 +16,7 @@ import {
 import { buildApprovalHelperText } from './runtime/approval-helper';
 import { buildSelfGuardedSystemPrompt } from './runtime/self-guarded-prompt';
 import { handleToolCall } from './runtime/tool-approval';
+import { resolveShortcut } from './shortcut';
 import type { ApprovalMode, BlockedCommand, Config } from './types';
 
 const factory: ExtensionFactory = async (api) => {
@@ -68,9 +68,7 @@ const factory: ExtensionFactory = async (api) => {
 	});
 
 	// Shortcut: cycles mode
-	const shortcutId = (parseKey(config.shortcut) ??
-		parseKey(DEFAULT_CONFIG.shortcut)) as KeyId;
-	api.registerShortcut(shortcutId, {
+	api.registerShortcut(resolveShortcut(config.shortcut), {
 		description: 'Cycle approval mode',
 		handler: async (ctx) => {
 			const currentIdx = MODES.indexOf(config.mode);

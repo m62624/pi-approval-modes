@@ -34,7 +34,7 @@ The shell guard is shell-agnostic. Pi still calls the built-in tool `bash`, but 
 | `full-access` | Auto-allow most tool calls. Built-in hard-deny shell decisions and configured deny rules still block. |
 | `read-safe` | Default. Auto-allow clearly read-only shell commands. Ask before mutations, network, interpreters, package runners, unknown commands, and file writes/edits. |
 | `folder-trusted` | Auto-allow path tools and read-only shell commands only when they stay inside the current Pi `cwd`. Ask outside `cwd` and for scripts, launchers, package runners, network, interpreters, and ambiguous shell. |
-| `self-guarded` | Inject an English checklist into the system prompt so the model self-evaluates tool calls. Runtime still blocks deny rules and asks the user on uncertain calls. |
+| `self-guarded` | Inject a checklist into the system prompt so the model self-evaluates tool calls. Runtime still blocks deny rules and asks the user on uncertain calls. |
 | `ask-first` | Ask before shell, `write`, and `edit` calls unless a deny rule blocks first. |
 
 Legacy mode names are still accepted:
@@ -303,7 +303,7 @@ Pattern syntax:
 
 ## Self-Guarded Mode 🤖
 
-`self-guarded` appends an English checklist to the system prompt before each agent turn. The checklist tells the model to evaluate task relevance, cwd scope, shell risk, custom tool effects, configured deny/ask/allow rules, and uncertainty before calling a tool.
+`self-guarded` appends a checklist to the system prompt before each agent turn. The checklist tells the model to evaluate task relevance, cwd scope, shell risk, custom tool effects, configured deny/ask/allow rules, and uncertainty before calling a tool.
 
 Runtime behavior in this mode:
 
