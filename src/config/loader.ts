@@ -5,6 +5,7 @@ import { resolveMode as resolveApprovalMode } from '../mode';
 import type {
 	Config,
 	FilePermissions,
+	SelfGuardedConfig,
 	ShellGuardPolicyConfig,
 	ShellGuardRule,
 	ShellGuardRuleAction,
@@ -65,12 +66,24 @@ function mergeShellGuardPolicy(
 	};
 }
 
+function mergeSelfGuardedConfig(
+	loaded: Partial<SelfGuardedConfig> = {},
+): SelfGuardedConfig {
+	return {
+		checklist:
+			loaded.checklist === 'turn' || loaded.checklist === 'always'
+				? loaded.checklist
+				: DEFAULT_CONFIG.selfGuarded.checklist,
+	};
+}
+
 function mergeConfig(loaded: Partial<Config> | null): Config {
 	if (!loaded) {
 		return {
 			...DEFAULT_CONFIG,
 			permissions: { ...DEFAULT_CONFIG.permissions },
 			shellGuard: { ...DEFAULT_CONFIG.shellGuard, rules: [] },
+			selfGuarded: { ...DEFAULT_CONFIG.selfGuarded },
 		};
 	}
 
@@ -80,6 +93,7 @@ function mergeConfig(loaded: Partial<Config> | null): Config {
 		shortcut: loaded.shortcut ?? DEFAULT_CONFIG.shortcut,
 		permissions: mergePermissions(loaded.permissions),
 		shellGuard: mergeShellGuardPolicy(shellGuard),
+		selfGuarded: mergeSelfGuardedConfig(loaded.selfGuarded),
 	};
 }
 

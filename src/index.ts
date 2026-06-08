@@ -14,7 +14,10 @@ import {
 	tryResolveMode,
 } from './mode';
 import { buildApprovalHelperText } from './runtime/approval-helper';
-import { buildSelfGuardedSystemPrompt } from './runtime/self-guarded-prompt';
+import {
+	buildSelfGuardedContextMessages,
+	buildSelfGuardedSystemPrompt,
+} from './runtime/self-guarded-prompt';
 import { handleToolCall } from './runtime/tool-approval';
 import { resolveShortcut } from './shortcut';
 import type { ApprovalMode, BlockedCommand, Config } from './types';
@@ -47,10 +50,31 @@ const factory: ExtensionFactory = async (api) => {
 	});
 
 	api.on('before_agent_start', async (event, ctx) => {
-		if (config.mode !== 'self-guarded') return undefined;
+		if (
+			config.mode !== 'self-guarded' ||
+			config.selfGuarded.checklist !== 'turn'
+		) {
+			return undefined;
+		}
 		return {
 			systemPrompt: buildSelfGuardedSystemPrompt({
 				basePrompt: event.systemPrompt,
+				config,
+				cwd: ctx.cwd,
+			}),
+		};
+	});
+
+	api.on('context', async (event, ctx) => {
+		if (
+			config.mode !== 'self-guarded' ||
+			config.selfGuarded.checklist !== 'always'
+		) {
+			return undefined;
+		}
+		return {
+			messages: buildSelfGuardedContextMessages({
+				messages: event.messages,
 				config,
 				cwd: ctx.cwd,
 			}),
@@ -122,6 +146,7 @@ const factory: ExtensionFactory = async (api) => {
 				...DEFAULT_CONFIG,
 				permissions: { ...DEFAULT_CONFIG.permissions },
 				shellGuard: { ...DEFAULT_CONFIG.shellGuard, rules: [] },
+				selfGuarded: { ...DEFAULT_CONFIG.selfGuarded },
 			};
 			saveConfig(config);
 			ctx.ui.setStatus(EXTENSION_NAME, modeLabel(config.mode));
@@ -222,6 +247,8 @@ export type {
 	Config,
 	PatternRule,
 	Permissions,
+	SelfGuardedChecklistMode,
+	SelfGuardedConfig,
 	ShellAnalysis,
 	ShellGuardPolicyConfig,
 	ShellGuardRule,

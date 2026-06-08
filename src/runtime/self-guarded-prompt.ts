@@ -1,6 +1,8 @@
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { Config } from '../types';
 
 const MAX_RULES_IN_PROMPT = 20;
+const SELF_GUARDED_CONTEXT_MARKER = 'approval-self-guarded-checklist';
 
 export function buildSelfGuardedSystemPrompt(input: {
 	basePrompt: string;
@@ -9,9 +11,50 @@ export function buildSelfGuardedSystemPrompt(input: {
 }): string {
 	return `${input.basePrompt}
 
+${buildSelfGuardedChecklist({
+	config: input.config,
+	cwd: input.cwd,
+	mode: 'turn',
+})}`;
+}
+
+export function buildSelfGuardedContextMessages(input: {
+	messages: AgentMessage[];
+	config: Config;
+	cwd: string;
+}): AgentMessage[] {
+	return [
+		...input.messages.filter(
+			(message) =>
+				(message as AgentMessage & { customType?: string }).customType !==
+				SELF_GUARDED_CONTEXT_MARKER,
+		),
+		{
+			role: 'user',
+			content: buildSelfGuardedChecklist({
+				config: input.config,
+				cwd: input.cwd,
+				mode: 'always',
+			}),
+			timestamp: Date.now(),
+			customType: SELF_GUARDED_CONTEXT_MARKER,
+		} as AgentMessage,
+	];
+}
+
+function buildSelfGuardedChecklist(input: {
+	config: Config;
+	cwd: string;
+	mode: 'always' | 'turn';
+}): string {
+	const timing =
+		input.mode === 'always'
+			? 'This checklist is refreshed before each model request, right before you decide whether to call tools.'
+			: 'This checklist is attached once for the current user turn.';
+	return `
 ## Approval Self Guard
 
-The approval extension is running in self-guarded mode. Before every tool call, run this checklist internally and proceed only when the answer is clear.
+The approval extension is running in self-guarded mode. ${timing} Before every tool call, run this checklist internally and proceed only when the answer is clear.
 
 Current trusted working directory:
 \`${input.cwd}\`

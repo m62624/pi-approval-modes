@@ -30,6 +30,7 @@ export function buildApprovalHelperText(input?: { agentDir?: string }): string {
 		`- settings: ${paths.settings}`,
 		`- default shortcut: ${DEFAULT_CONFIG.shortcut}`,
 		'- edit "shortcut" in this settings file, then run /reload.',
+		'- selfGuarded.checklist: "always" before each model request, or "turn" once per user turn.',
 		'- use "permissions" for tool/path allow, ask, deny rules.',
 		'- use "shellGuard" for shell AST rules and unknown-command policy.',
 	].join('\n');

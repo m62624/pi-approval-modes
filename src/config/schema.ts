@@ -22,4 +22,5 @@ export const DEFAULT_CONFIG: Config = {
 	shortcut: 'alt+m',
 	permissions: { ...DEFAULT_FILE_PERMISSIONS },
 	shellGuard: { ...DEFAULT_SHELL_GUARD_POLICY, rules: [] },
+	selfGuarded: { checklist: 'always' },
 };

@@ -84,12 +84,20 @@ export type BashRuleMatch = ShellGuardRuleMatch;
 export type BashRule = ShellGuardRule;
 export type BashPolicyConfig = ShellGuardPolicyConfig;
 
+export type SelfGuardedChecklistMode = 'always' | 'turn';
+
+export interface SelfGuardedConfig {
+	/** always = before each model request; turn = once before each user turn. */
+	checklist: SelfGuardedChecklistMode;
+}
+
 export interface Config {
 	mode: ApprovalMode;
 	shortcut: string;
 	/** File tool permissions for Pi path tools. Shell commands use shellGuard.rules instead. */
 	permissions: FilePermissions;
 	shellGuard: ShellGuardPolicyConfig;
+	selfGuarded: SelfGuardedConfig;
 	/** @deprecated Use shellGuard. Loaded for compatibility with existing settings. */
 	bash?: ShellGuardPolicyConfig;
 }

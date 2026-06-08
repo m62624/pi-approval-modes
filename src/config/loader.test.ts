@@ -57,7 +57,18 @@ describe('loadConfig', () => {
 			shortcut: 'ctrl+shift+a',
 			permissions: { ...DEFAULT_CONFIG.permissions },
 			shellGuard: { ...DEFAULT_CONFIG.shellGuard, rules: [] },
+			selfGuarded: { ...DEFAULT_CONFIG.selfGuarded },
 		});
+	});
+
+	it('loads self-guarded checklist timing from file', () => {
+		vi.mocked(existsSync).mockReturnValue(true);
+		vi.mocked(readFileSync).mockReturnValue(
+			JSON.stringify({ selfGuarded: { checklist: 'turn' } }),
+		);
+
+		const result = loadConfig();
+		expect(result?.selfGuarded).toEqual({ checklist: 'turn' });
 	});
 
 	it('loads shell guard AST rules from file', () => {
