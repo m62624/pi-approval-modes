@@ -57,7 +57,13 @@ safe      -> read-safe
 | `/approval-reset` | Confirm, then reset the whole settings file to factory defaults. |
 | `/approval-stats` | Show approved and blocked counts for the session. |
 
-## Keybinding 🎚️
+## Extension Settings ⚙️
+
+The extension stores its own settings here:
+
+```text
+~/.pi/agent/extensions/approval-modes/settings.json
+```
 
 Default mode-cycle shortcut:
 
@@ -65,23 +71,7 @@ Default mode-cycle shortcut:
 alt+m
 ```
 
-This avoids Pi's built-in default bindings while staying simple enough for most terminals. To change it, edit `shortcut` in the extension settings file and run `/reload`.
-
-Pi keybindings can also be customized globally in:
-
-```text
-~/.pi/agent/keybindings.json
-```
-
-After editing keybindings, run `/reload`.
-
-## Config 🧩
-
-Config file:
-
-```text
-~/.pi/agent/extensions/approval-modes/settings.json
-```
+To change it, edit `shortcut` in this settings file and run `/reload`.
 
 Default config:
 

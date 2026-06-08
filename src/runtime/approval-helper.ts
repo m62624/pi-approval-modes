@@ -29,7 +29,7 @@ export function buildApprovalHelperText(input?: { agentDir?: string }): string {
 		'Config:',
 		`- settings: ${paths.settings}`,
 		`- default shortcut: ${DEFAULT_CONFIG.shortcut}`,
-		'- edit "shortcut" in settings.json, then run /reload.',
+		'- edit "shortcut" in this settings file, then run /reload.',
 		'- use "permissions" for tool/path allow, ask, deny rules.',
 		'- use "shellGuard" for shell AST rules and unknown-command policy.',
 	].join('\n');
