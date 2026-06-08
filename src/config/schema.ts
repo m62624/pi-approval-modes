@@ -19,7 +19,7 @@ export const DEFAULT_BASH_POLICY = DEFAULT_SHELL_GUARD_POLICY;
 
 export const DEFAULT_CONFIG: Config = {
 	mode: 'read-safe',
-	shortcut: 'ctrl+shift+f8',
+	shortcut: 'alt+m',
 	permissions: { ...DEFAULT_FILE_PERMISSIONS },
 	shellGuard: { ...DEFAULT_SHELL_GUARD_POLICY, rules: [] },
 };

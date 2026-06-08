@@ -13,6 +13,6 @@ describe('buildApprovalHelperText', () => {
 			'/mock/agent/extensions/approval-modes/settings.json',
 		);
 		expect(text).toContain('shellGuard');
-		expect(text).toContain('ctrl+shift+f8');
+		expect(text).toContain('alt+m');
 	});
 });

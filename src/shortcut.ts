@@ -67,7 +67,7 @@ const SYMBOL_KEYS = new Set([
 	'?',
 ]);
 
-export const DEFAULT_SHORTCUT_ID: KeyId = Key.ctrlShift('f8');
+export const DEFAULT_SHORTCUT_ID: KeyId = Key.alt('m');
 
 export function resolveShortcut(raw: string | undefined): KeyId {
 	return parseShortcut(raw) ?? DEFAULT_SHORTCUT_ID;

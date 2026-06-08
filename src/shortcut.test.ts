@@ -7,6 +7,7 @@ import {
 
 describe('shortcut parsing', () => {
 	it('parses configured modifier shortcuts', () => {
+		expect(parseShortcut('alt+m')).toBe('alt+m');
 		expect(parseShortcut('ctrl+shift+f8')).toBe('ctrl+shift+f8');
 		expect(parseShortcut('ctrl+alt+a')).toBe('ctrl+alt+a');
 		expect(parseShortcut('shift+tab')).toBe('shift+tab');

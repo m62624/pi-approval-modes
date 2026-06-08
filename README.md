@@ -63,10 +63,10 @@ safe      -> read-safe
 Default mode-cycle shortcut:
 
 ```text
-ctrl+shift+f8
+alt+m
 ```
 
-This avoids Pi's built-in `shift+tab` thinking-cycle binding. To change it, edit `shortcut` in the extension settings file and run `/reload`.
+This avoids Pi's built-in default bindings while staying simple enough for most terminals. To change it, edit `shortcut` in the extension settings file and run `/reload`.
 
 Pi keybindings can also be customized globally in:
 
@@ -89,7 +89,7 @@ Default config:
 ```json
 {
   "mode": "read-safe",
-  "shortcut": "ctrl+shift+f8",
+  "shortcut": "alt+m",
   "permissions": {
     "allow": [],
     "deny": [],
