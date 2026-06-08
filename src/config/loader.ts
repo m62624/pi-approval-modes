@@ -1,12 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { EXTENSION_NAME } from '../constants';
+import { resolveMode as resolveApprovalMode } from '../mode';
 import type {
-	BashPolicyConfig,
-	BashRule,
-	BashRuleAction,
 	Config,
 	FilePermissions,
+	ShellGuardPolicyConfig,
+	ShellGuardRule,
+	ShellGuardRuleAction,
 } from '../types';
 import { createConfigPaths } from './paths';
 import { DEFAULT_CONFIG } from './schema';
@@ -20,27 +21,13 @@ export function configPaths() {
 }
 
 function resolveMode(raw: string | undefined): Config['mode'] {
-	const aliases: Record<string, Config['mode']> = {
-		approved: 'read-only',
-		safe: 'read-only',
-	};
-	if (!raw) return 'read-only';
-	const normalized = raw.toLowerCase().trim();
-	if (normalized in aliases) return aliases[normalized];
-	if (
-		normalized === 'yolo' ||
-		normalized === 'read-only' ||
-		normalized === 'strict'
-	) {
-		return normalized;
-	}
-	return 'read-only';
+	return resolveApprovalMode(raw);
 }
 
 function resolveAction(
 	raw: string | undefined,
-	fallback: BashRuleAction,
-): BashRuleAction {
+	fallback: ShellGuardRuleAction,
+): ShellGuardRuleAction {
 	if (raw === 'allow' || raw === 'ask' || raw === 'deny') return raw;
 	return fallback;
 }
@@ -55,9 +42,9 @@ function mergePermissions(
 	};
 }
 
-function isBashRule(value: unknown): value is BashRule {
+function isShellGuardRule(value: unknown): value is ShellGuardRule {
 	if (!value || typeof value !== 'object') return false;
-	const candidate = value as Partial<BashRule>;
+	const candidate = value as Partial<ShellGuardRule>;
 	return (
 		(candidate.action === 'allow' ||
 			candidate.action === 'ask' ||
@@ -67,12 +54,14 @@ function isBashRule(value: unknown): value is BashRule {
 	);
 }
 
-function mergeBashPolicy(
-	loaded: Partial<BashPolicyConfig> = {},
-): BashPolicyConfig {
+function mergeShellGuardPolicy(
+	loaded: Partial<ShellGuardPolicyConfig> = {},
+): ShellGuardPolicyConfig {
 	return {
-		rules: Array.isArray(loaded.rules) ? loaded.rules.filter(isBashRule) : [],
-		unknown: resolveAction(loaded.unknown, DEFAULT_CONFIG.bash.unknown),
+		rules: Array.isArray(loaded.rules)
+			? loaded.rules.filter(isShellGuardRule)
+			: [],
+		unknown: resolveAction(loaded.unknown, DEFAULT_CONFIG.shellGuard.unknown),
 	};
 }
 
@@ -81,15 +70,16 @@ function mergeConfig(loaded: Partial<Config> | null): Config {
 		return {
 			...DEFAULT_CONFIG,
 			permissions: { ...DEFAULT_CONFIG.permissions },
-			bash: { ...DEFAULT_CONFIG.bash, rules: [] },
+			shellGuard: { ...DEFAULT_CONFIG.shellGuard, rules: [] },
 		};
 	}
 
+	const shellGuard = loaded.shellGuard ?? loaded.bash;
 	return {
 		mode: resolveMode(loaded.mode),
 		shortcut: loaded.shortcut ?? DEFAULT_CONFIG.shortcut,
 		permissions: mergePermissions(loaded.permissions),
-		bash: mergeBashPolicy(loaded.bash),
+		shellGuard: mergeShellGuardPolicy(shellGuard),
 	};
 }
 

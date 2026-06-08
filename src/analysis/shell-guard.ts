@@ -1,13 +1,14 @@
 import { isPathPattern } from '../path-pattern';
+import { isPathInsideRoot } from '../path-scope';
 import type {
-	BashAnalysis,
-	BashPipelineMatch,
-	BashPolicyConfig,
-	BashRedirectionMatch,
-	BashRule,
-	BashRuleAction,
-	BashRuleMatch,
 	Config,
+	ShellAnalysis,
+	ShellGuardPipelineMatch,
+	ShellGuardPolicyConfig,
+	ShellGuardRedirectionMatch,
+	ShellGuardRule,
+	ShellGuardRuleAction,
+	ShellGuardRuleMatch,
 } from '../types';
 import type {
 	ShellCommandNode,
@@ -137,7 +138,10 @@ const MUTATING_TOOLS = new Set([
 const PRIVILEGE_TOOLS = new Set(['sudo', 'su', 'doas', 'runas']);
 const DISK_TOOLS = new Set(['mkfs', 'fdisk', 'parted', 'diskpart', 'format']);
 const WRAPPERS = new Set(['command', 'builtin', 'nohup', 'time']);
-const DEFAULT_RUNTIME_POLICY: BashPolicyConfig = { rules: [], unknown: 'ask' };
+const DEFAULT_RUNTIME_POLICY: ShellGuardPolicyConfig = {
+	rules: [],
+	unknown: 'ask',
+};
 
 interface NormalizedCommand {
 	command: string;
@@ -145,7 +149,7 @@ interface NormalizedCommand {
 	words: ShellWord[];
 }
 
-function toAnalysis(action: BashRuleAction): BashAnalysis {
+function toAnalysis(action: ShellGuardRuleAction): ShellAnalysis {
 	switch (action) {
 		case 'allow':
 			return 'safe';
@@ -157,9 +161,9 @@ function toAnalysis(action: BashRuleAction): BashAnalysis {
 }
 
 function mergeAnalysis(
-	current: BashAnalysis,
-	next: BashAnalysis,
-): BashAnalysis {
+	current: ShellAnalysis,
+	next: ShellAnalysis,
+): ShellAnalysis {
 	if (current === 'dangerous' || next === 'dangerous') return 'dangerous';
 	if (current === 'pipe-bypass' || next === 'pipe-bypass') return 'pipe-bypass';
 	return 'safe';
@@ -369,8 +373,8 @@ function isRecursiveForceRm(args: string[]): boolean {
 	return hasRecursive && hasForce;
 }
 
-function analyzeRedirections(command: ShellCommandNode): BashAnalysis {
-	let result: BashAnalysis = 'safe';
+function analyzeRedirections(command: ShellCommandNode): ShellAnalysis {
+	let result: ShellAnalysis = 'safe';
 	for (const redirection of command.redirections) {
 		if (isFdDup(redirection)) continue;
 		if (redirection.op.includes('<<')) {
@@ -397,19 +401,19 @@ function analyzeRedirections(command: ShellCommandNode): BashAnalysis {
 	return result;
 }
 
-function analyzeDd(args: string[]): BashAnalysis {
+function analyzeDd(args: string[]): ShellAnalysis {
 	const output = args.find((arg) => arg.startsWith('of='));
 	if (!output) return 'pipe-bypass';
 	return isProtectedPath(output.slice(3)) ? 'dangerous' : 'pipe-bypass';
 }
 
-function analyzeTee(args: string[]): BashAnalysis {
+function analyzeTee(args: string[]): ShellAnalysis {
 	const targets = args.filter((arg) => !arg.startsWith('-'));
 	if (targets.some(isProtectedPath)) return 'dangerous';
 	return targets.length > 0 ? 'pipe-bypass' : 'safe';
 }
 
-function analyzeRm(args: string[]): BashAnalysis {
+function analyzeRm(args: string[]): ShellAnalysis {
 	const targets = positionalArgs(args);
 	if (targets.some(isProtectedPath)) return 'dangerous';
 	if (
@@ -421,7 +425,10 @@ function analyzeRm(args: string[]): BashAnalysis {
 	return 'pipe-bypass';
 }
 
-function analyzeMutatingCommand(command: string, args: string[]): BashAnalysis {
+function analyzeMutatingCommand(
+	command: string,
+	args: string[],
+): ShellAnalysis {
 	if (command === 'rm' || command === 'del' || command === 'erase') {
 		return analyzeRm(args);
 	}
@@ -441,7 +448,7 @@ function analyzeMutatingCommand(command: string, args: string[]): BashAnalysis {
 function analyzeReadOnlyCommandArgs(
 	command: string,
 	args: string[],
-): BashAnalysis {
+): ShellAnalysis {
 	if (
 		command === 'find' &&
 		(args.includes('-delete') || args.includes('-exec'))
@@ -461,7 +468,7 @@ function analyzeReadOnlyCommandArgs(
 	return 'safe';
 }
 
-function analyzeXargs(args: string[]): BashAnalysis {
+function analyzeXargs(args: string[]): ShellAnalysis {
 	const commandIndex = args.findIndex((arg) => !arg.startsWith('-'));
 	if (commandIndex < 0) return 'pipe-bypass';
 	const nested = args.slice(commandIndex);
@@ -472,7 +479,7 @@ function analyzeXargs(args: string[]): BashAnalysis {
 	return 'pipe-bypass';
 }
 
-function analyzeBuiltinCommand(commandNode: ShellCommandNode): BashAnalysis {
+function analyzeBuiltinCommand(commandNode: ShellCommandNode): ShellAnalysis {
 	const redirectionResult = analyzeRedirections(commandNode);
 	if (redirectionResult === 'dangerous') return 'dangerous';
 	if (commandHasExpansion(commandNode)) return 'pipe-bypass';
@@ -590,7 +597,10 @@ function pathMatches(
 	});
 }
 
-function matchesArgs(args: string[], rule: BashRuleMatch['args']): boolean {
+function matchesArgs(
+	args: string[],
+	rule: ShellGuardRuleMatch['args'],
+): boolean {
 	if (!rule) return true;
 	if (rule.includes && !rule.includes.every((arg) => args.includes(arg))) {
 		return false;
@@ -617,7 +627,7 @@ function matchesArgs(args: string[], rule: BashRuleMatch['args']): boolean {
 
 function matchesTargetKind(
 	target: string,
-	kind: BashRedirectionMatch['targetKind'],
+	kind: ShellGuardRedirectionMatch['targetKind'],
 ): boolean {
 	if (!kind || kind === 'any') return true;
 	if (kind === 'null') return isNullDevice(target);
@@ -627,7 +637,7 @@ function matchesTargetKind(
 
 function matchesRedirection(
 	redirections: ShellRedirection[],
-	rule: BashRedirectionMatch | undefined,
+	rule: ShellGuardRedirectionMatch | undefined,
 ): boolean {
 	if (!rule) return true;
 	return redirections.some((redirection) => {
@@ -649,7 +659,7 @@ function matchesRedirection(
 
 function matchesPipeline(
 	ast: ShellSequenceNode,
-	pipeline: BashPipelineMatch,
+	pipeline: ShellGuardPipelineMatch,
 ): boolean {
 	for (let i = 0; i < ast.operators.length; i++) {
 		if (ast.operators[i] !== '|') continue;
@@ -668,7 +678,7 @@ function matchesPipeline(
 
 function matchesCommandNode(
 	commandNode: ShellCommandNode,
-	match: BashRuleMatch,
+	match: ShellGuardRuleMatch,
 ): boolean {
 	const normalized = unwrapCommand(commandNode.words);
 	if (!matchesString(normalized.command, match.command)) return false;
@@ -684,7 +694,7 @@ function matchesCommandNode(
 	return true;
 }
 
-function ruleHasCommandScope(match: BashRuleMatch): boolean {
+function ruleHasCommandScope(match: ShellGuardRuleMatch): boolean {
 	return (
 		match.command !== undefined ||
 		match.args !== undefined ||
@@ -693,7 +703,7 @@ function ruleHasCommandScope(match: BashRuleMatch): boolean {
 	);
 }
 
-function matchesRule(ast: ShellSequenceNode, rule: BashRule): boolean {
+function matchesRule(ast: ShellSequenceNode, rule: ShellGuardRule): boolean {
 	const match = rule.match;
 	if (
 		match.hasUnsupportedSyntax !== undefined &&
@@ -718,7 +728,7 @@ function matchesRule(ast: ShellSequenceNode, rule: BashRule): boolean {
 
 function matchesRuleForCommand(
 	commandNode: ShellCommandNode,
-	rule: BashRule,
+	rule: ShellGuardRule,
 ): boolean {
 	const match = rule.match;
 	if (
@@ -731,7 +741,7 @@ function matchesRuleForCommand(
 	return ruleHasCommandScope(match) && matchesCommandNode(commandNode, match);
 }
 
-function ruleHasSequenceScope(rule: BashRule): boolean {
+function ruleHasSequenceScope(rule: ShellGuardRule): boolean {
 	return (
 		rule.match.pipeline !== undefined ||
 		rule.match.commands !== undefined ||
@@ -741,9 +751,9 @@ function ruleHasSequenceScope(rule: BashRule): boolean {
 
 function findSequenceRule(
 	ast: ShellSequenceNode,
-	policy: BashPolicyConfig,
+	policy: ShellGuardPolicyConfig,
 	precedence: 'before-builtin' | 'after-builtin',
-): BashRule | undefined {
+): ShellGuardRule | undefined {
 	return policy.rules.find(
 		(rule) =>
 			ruleHasSequenceScope(rule) &&
@@ -754,9 +764,9 @@ function findSequenceRule(
 
 function findCommandRule(
 	commandNode: ShellCommandNode,
-	policy: BashPolicyConfig,
+	policy: ShellGuardPolicyConfig,
 	precedence: 'before-builtin' | 'after-builtin',
-): BashRule | undefined {
+): ShellGuardRule | undefined {
 	return policy.rules.find(
 		(rule) =>
 			(rule.precedence ?? 'before-builtin') === precedence &&
@@ -789,8 +799,8 @@ function isKnownCommand(command: string): boolean {
 
 function analyzeCommandNode(
 	commandNode: ShellCommandNode,
-	policy: BashPolicyConfig,
-): BashAnalysis {
+	policy: ShellGuardPolicyConfig,
+): ShellAnalysis {
 	const beforeRule = findCommandRule(commandNode, policy, 'before-builtin');
 	if (beforeRule) return toAnalysis(beforeRule.action);
 
@@ -804,15 +814,15 @@ function analyzeCommandNode(
 	return builtin;
 }
 
-export function analyzeBashCommand(
+export function analyzeShellCommand(
 	command: string,
 	config: Config,
-): BashAnalysis {
+): ShellAnalysis {
 	const trimmed = command.trim();
 	if (!trimmed) return 'safe';
 
 	const ast = parseShell(trimmed);
-	const policy = config.bash ?? DEFAULT_RUNTIME_POLICY;
+	const policy = config.shellGuard ?? config.bash ?? DEFAULT_RUNTIME_POLICY;
 
 	const beforeRule = findSequenceRule(ast, policy, 'before-builtin');
 	if (beforeRule) return toAnalysis(beforeRule.action);
@@ -820,7 +830,7 @@ export function analyzeBashCommand(
 	if (hasForkBombShape(trimmed)) return 'dangerous';
 	if (hasRemoteCodePipe(ast)) return 'dangerous';
 
-	let result: BashAnalysis = ast.unsupported ? 'pipe-bypass' : 'safe';
+	let result: ShellAnalysis = ast.unsupported ? 'pipe-bypass' : 'safe';
 	for (const commandNode of ast.commands) {
 		result = mergeAnalysis(result, analyzeCommandNode(commandNode, policy));
 		if (result === 'dangerous') return result;
@@ -830,6 +840,51 @@ export function analyzeBashCommand(
 	if (afterRule) return toAnalysis(afterRule.action);
 
 	return result;
+}
+
+export const analyzeBashCommand = analyzeShellCommand;
+
+export function isShellCommandScopedToCwd(
+	command: string,
+	cwd: string,
+): boolean {
+	const trimmed = command.trim();
+	if (!trimmed) return true;
+
+	const ast = parseShell(trimmed);
+	if (ast.unsupported) return false;
+
+	for (const commandNode of ast.commands) {
+		if (commandHasExpansion(commandNode)) return false;
+
+		for (const redirection of commandNode.redirections) {
+			if (!redirection.target) return false;
+			const target = shellArgText(redirection.target);
+			if (isNullDevice(target)) continue;
+			if (!isShellPathInsideCwd(target, cwd)) return false;
+		}
+
+		const { args } = unwrapCommand(commandNode.words);
+		for (const arg of args) {
+			if (!shouldCheckShellArgPath(arg)) continue;
+			if (!isShellPathInsideCwd(arg, cwd)) return false;
+		}
+	}
+
+	return true;
+}
+
+function shouldCheckShellArgPath(arg: string): boolean {
+	if (!arg || arg === '-') return false;
+	if (arg.startsWith('-')) return false;
+	if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(arg)) return true;
+	return true;
+}
+
+function isShellPathInsideCwd(path: string, cwd: string): boolean {
+	if (path.startsWith('~')) return false;
+	if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(path)) return false;
+	return isPathInsideRoot(cwd, path, cwd);
 }
 
 export type {

@@ -1,8 +1,18 @@
-export type ApprovalMode = 'yolo' | 'read-only' | 'strict';
+export type ApprovalMode =
+	| 'full-access'
+	| 'read-safe'
+	| 'ask-first'
+	| 'folder-trusted'
+	| 'self-guarded';
 
-export type BashAnalysis = 'safe' | 'dangerous' | 'pipe-bypass';
-export type BashRuleAction = 'allow' | 'ask' | 'deny';
-export type BashRulePrecedence = 'before-builtin' | 'after-builtin';
+export type ShellAnalysis = 'safe' | 'dangerous' | 'pipe-bypass';
+export type ShellGuardRuleAction = 'allow' | 'ask' | 'deny';
+export type ShellGuardRulePrecedence = 'before-builtin' | 'after-builtin';
+
+// Backwards-compatible names for older imports.
+export type BashAnalysis = ShellAnalysis;
+export type BashRuleAction = ShellGuardRuleAction;
+export type BashRulePrecedence = ShellGuardRulePrecedence;
 
 export interface PatternRule {
 	tool: string;
@@ -19,59 +29,69 @@ export interface FilePermissions {
 // Backwards-compatible name for older imports.
 export type Permissions = FilePermissions;
 
-export interface BashArgMatch {
+export interface ShellGuardArgMatch {
 	includes?: string[];
 	includesAny?: string[];
 	startsWith?: string[];
 	contains?: string[];
 }
 
-export interface BashRedirectionMatch {
+export interface ShellGuardRedirectionMatch {
 	target?: string | string[];
 	targetKind?: 'any' | 'null' | 'protected' | 'workspace';
 	op?: string | string[];
 	write?: boolean;
 }
 
-export interface BashPipelineMatch {
+export interface ShellGuardPipelineMatch {
 	from?: string | string[];
 	to?: string | string[];
 }
 
-export interface BashRuleMatch {
+export interface ShellGuardRuleMatch {
 	command?: string | string[];
 	commands?: string[];
-	args?: BashArgMatch;
-	redirection?: BashRedirectionMatch;
-	pipeline?: BashPipelineMatch;
+	args?: ShellGuardArgMatch;
+	redirection?: ShellGuardRedirectionMatch;
+	pipeline?: ShellGuardPipelineMatch;
 	hasExpansion?: boolean;
 	hasUnsupportedSyntax?: boolean;
 }
 
-export interface BashRule {
+export interface ShellGuardRule {
 	id?: string;
-	action: BashRuleAction;
-	precedence?: BashRulePrecedence;
+	action: ShellGuardRuleAction;
+	precedence?: ShellGuardRulePrecedence;
 	reason?: string;
-	match: BashRuleMatch;
+	match: ShellGuardRuleMatch;
 }
 
-export interface BashPolicyConfig {
+export interface ShellGuardPolicyConfig {
 	/**
 	 * User AST rules. Empty by default.
 	 * Rules with precedence="before-builtin" may override the built-in AST policy.
 	 */
-	rules: BashRule[];
+	rules: ShellGuardRule[];
 	/** Decision for unknown commands. Default: ask. */
-	unknown: BashRuleAction;
+	unknown: ShellGuardRuleAction;
 }
+
+// Backwards-compatible names for older imports.
+export type BashArgMatch = ShellGuardArgMatch;
+export type BashRedirectionMatch = ShellGuardRedirectionMatch;
+export type BashPipelineMatch = ShellGuardPipelineMatch;
+export type BashRuleMatch = ShellGuardRuleMatch;
+export type BashRule = ShellGuardRule;
+export type BashPolicyConfig = ShellGuardPolicyConfig;
 
 export interface Config {
 	mode: ApprovalMode;
 	shortcut: string;
-	/** File tool permissions for write/edit. Bash uses bash.rules instead. */
+	/** File tool permissions for Pi path tools. Shell commands use shellGuard.rules instead. */
 	permissions: FilePermissions;
-	bash: BashPolicyConfig;
+	shellGuard: ShellGuardPolicyConfig;
+	/** @deprecated Use shellGuard. Loaded for compatibility with existing settings. */
+	bash?: ShellGuardPolicyConfig;
 }
 
 export interface BlockedCommand {

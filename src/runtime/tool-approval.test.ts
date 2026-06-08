@@ -29,6 +29,7 @@ function createContext(approved = true) {
 			confirm: vi.fn().mockResolvedValue(approved),
 			select: vi.fn(),
 		},
+		cwd: '/repo/app',
 		sessionManager: {
 			getBranch: vi.fn().mockReturnValue([]),
 		},
@@ -46,6 +47,7 @@ function createContextWithSession(
 			confirm: vi.fn().mockResolvedValue(approved),
 			select: vi.fn().mockResolvedValue(selectedChoice),
 		},
+		cwd: '/repo/app',
 		sessionManager: {
 			getBranch: vi.fn().mockReturnValue(branch),
 		},
@@ -62,6 +64,15 @@ function bashEvent(command: string): ToolCallEvent {
 	} as ToolCallEvent;
 }
 
+function readEvent(path: string): ToolCallEvent {
+	return {
+		type: 'tool_call',
+		toolCallId: 'call-1',
+		toolName: 'read',
+		input: { path },
+	} as ToolCallEvent;
+}
+
 function writeEvent(path: string): ToolCallEvent {
 	return {
 		type: 'tool_call',
@@ -71,9 +82,21 @@ function writeEvent(path: string): ToolCallEvent {
 	} as ToolCallEvent;
 }
 
+function customEvent(
+	toolName: string,
+	input: Record<string, unknown>,
+): ToolCallEvent {
+	return {
+		type: 'tool_call',
+		toolCallId: 'call-1',
+		toolName,
+		input,
+	} as ToolCallEvent;
+}
+
 describe('handleToolCall', () => {
-	it('blocks denied bash commands in yolo mode', async () => {
-		const runtime = createRuntime({ ...DEFAULT_CONFIG, mode: 'yolo' });
+	it('blocks denied shell commands in full-access mode', async () => {
+		const runtime = createRuntime({ ...DEFAULT_CONFIG, mode: 'full-access' });
 		const ctx = createContext();
 
 		const result = await handleToolCall(
@@ -91,7 +114,7 @@ describe('handleToolCall', () => {
 		expect(runtime.blockedCommands).toHaveLength(1);
 	});
 
-	it('asks for write commands in read-only mode', async () => {
+	it('asks for write commands in read-safe mode', async () => {
 		const runtime = createRuntime();
 		const ctx = createContext(true);
 
@@ -110,8 +133,8 @@ describe('handleToolCall', () => {
 		expect(runtime.approvedCalls.has('call-1')).toBe(true);
 	});
 
-	it('allows non-denied write commands in yolo mode without asking', async () => {
-		const runtime = createRuntime({ ...DEFAULT_CONFIG, mode: 'yolo' });
+	it('allows non-denied write commands in full-access mode without asking', async () => {
+		const runtime = createRuntime({ ...DEFAULT_CONFIG, mode: 'full-access' });
 		const ctx = createContext();
 
 		const result = await handleToolCall(
@@ -125,7 +148,7 @@ describe('handleToolCall', () => {
 	});
 
 	it('asks using select and allows each tool call individually', async () => {
-		const runtime = createRuntime({ ...DEFAULT_CONFIG, mode: 'strict' });
+		const runtime = createRuntime({ ...DEFAULT_CONFIG, mode: 'ask-first' });
 		const branch = [
 			{
 				type: 'message',
@@ -164,7 +187,7 @@ describe('handleToolCall', () => {
 		);
 		expect(result1).toBeUndefined();
 		expect(ctx1.ui.select).toHaveBeenCalledWith(
-			'Approve bash command [1/2]',
+			'Approve shell command [1/2]',
 			['Allow', 'Deny', 'Allow All', 'Deny All'],
 			expect.any(Object),
 		);
@@ -184,14 +207,14 @@ describe('handleToolCall', () => {
 		);
 		expect(result2).toEqual({ block: true, reason: 'User denied approval' });
 		expect(ctx2.ui.select).toHaveBeenCalledWith(
-			'Approve bash command [2/2]',
+			'Approve shell command [2/2]',
 			['Allow', 'Deny', 'Allow All', 'Deny All'],
 			expect.any(Object),
 		);
 	});
 
 	it('auto-approves subsequent tool calls when Allow All is selected', async () => {
-		const runtime = createRuntime({ ...DEFAULT_CONFIG, mode: 'strict' });
+		const runtime = createRuntime({ ...DEFAULT_CONFIG, mode: 'ask-first' });
 		const branch = [
 			{
 				type: 'message',
@@ -249,7 +272,7 @@ describe('handleToolCall', () => {
 	});
 
 	it('auto-denies subsequent tool calls when Deny All is selected', async () => {
-		const runtime = createRuntime({ ...DEFAULT_CONFIG, mode: 'strict' });
+		const runtime = createRuntime({ ...DEFAULT_CONFIG, mode: 'ask-first' });
 		const branch = [
 			{
 				type: 'message',
@@ -306,5 +329,191 @@ describe('handleToolCall', () => {
 			reason: 'User denied all tool calls in this batch',
 		});
 		expect(ctx2.ui.select).not.toHaveBeenCalled();
+	});
+
+	it('allows path tools inside cwd in folder-trusted mode', async () => {
+		const runtime = createRuntime({
+			...DEFAULT_CONFIG,
+			mode: 'folder-trusted',
+		});
+		const ctx = createContext();
+
+		await expect(
+			handleToolCall(writeEvent('/repo/app/src/file.ts'), ctx, runtime),
+		).resolves.toBeUndefined();
+		await expect(
+			handleToolCall(readEvent('/repo/app/src/file.ts'), ctx, runtime),
+		).resolves.toBeUndefined();
+		expect(ctx.ui.confirm).not.toHaveBeenCalled();
+	});
+
+	it('asks for path tools outside cwd in folder-trusted mode', async () => {
+		const runtime = createRuntime({
+			...DEFAULT_CONFIG,
+			mode: 'folder-trusted',
+		});
+		const ctx = createContext(true);
+
+		await expect(
+			handleToolCall(writeEvent('/repo/other/file.ts'), ctx, runtime),
+		).resolves.toBeUndefined();
+
+		expect(ctx.ui.confirm).toHaveBeenCalledWith(
+			'Approve file operation',
+			'write /repo/other/file.ts',
+			expect.any(Object),
+		);
+	});
+
+	it('allows scoped safe shell commands in folder-trusted mode', async () => {
+		const runtime = createRuntime({
+			...DEFAULT_CONFIG,
+			mode: 'folder-trusted',
+		});
+		const ctx = createContext();
+
+		await expect(
+			handleToolCall(bashEvent('cat src/index.ts'), ctx, runtime),
+		).resolves.toBeUndefined();
+		expect(ctx.ui.confirm).not.toHaveBeenCalled();
+	});
+
+	it('asks for shell paths outside cwd in folder-trusted mode', async () => {
+		const runtime = createRuntime({
+			...DEFAULT_CONFIG,
+			mode: 'folder-trusted',
+		});
+		const ctx = createContext(true);
+
+		await expect(
+			handleToolCall(bashEvent('cat ../secret.txt'), ctx, runtime),
+		).resolves.toBeUndefined();
+		expect(ctx.ui.confirm).toHaveBeenCalledWith(
+			'Approve shell command',
+			'shell: cat ../secret.txt',
+			expect.any(Object),
+		);
+	});
+
+	it('asks for launchers in folder-trusted mode', async () => {
+		const runtime = createRuntime({
+			...DEFAULT_CONFIG,
+			mode: 'folder-trusted',
+		});
+		const ctx = createContext(true);
+
+		await expect(
+			handleToolCall(bashEvent('npm test'), ctx, runtime),
+		).resolves.toBeUndefined();
+		expect(ctx.ui.confirm).toHaveBeenCalledWith(
+			'Approve shell command',
+			'shell: npm test',
+			expect.any(Object),
+		);
+	});
+
+	it('self-guarded allows safe shell but asks ambiguous shell', async () => {
+		const runtime = createRuntime({
+			...DEFAULT_CONFIG,
+			mode: 'self-guarded',
+		});
+		const safeCtx = createContext();
+		await expect(
+			handleToolCall(bashEvent('git status'), safeCtx, runtime),
+		).resolves.toBeUndefined();
+		expect(safeCtx.ui.confirm).not.toHaveBeenCalled();
+
+		const askCtx = createContext(true);
+		await expect(
+			handleToolCall(
+				{
+					...bashEvent('cargo check'),
+					toolCallId: 'call-2',
+				} as ToolCallEvent,
+				askCtx,
+				runtime,
+			),
+		).resolves.toBeUndefined();
+		expect(askCtx.ui.confirm).toHaveBeenCalledWith(
+			'Approve shell command',
+			'shell: cargo check',
+			expect.any(Object),
+		);
+	});
+
+	it('self-guarded asks for custom tools without an allow rule', async () => {
+		const runtime = createRuntime({
+			...DEFAULT_CONFIG,
+			mode: 'self-guarded',
+		});
+		const ctx = createContext(true);
+
+		await expect(
+			handleToolCall(customEvent('deploy', { target: 'prod' }), ctx, runtime),
+		).resolves.toBeUndefined();
+		expect(ctx.ui.confirm).toHaveBeenCalledWith(
+			'Approve tool call',
+			'deploy: {"target":"prod"}',
+			expect.any(Object),
+		);
+	});
+
+	it('keeps hard deny stronger than batch Allow All', async () => {
+		const runtime = createRuntime({ ...DEFAULT_CONFIG, mode: 'ask-first' });
+		const branch = [
+			{
+				type: 'message',
+				id: 'msg-assistant-2',
+				message: {
+					role: 'assistant',
+					content: [
+						{
+							type: 'toolCall',
+							id: 'call-1',
+							name: 'bash',
+							arguments: { command: 'cargo check' },
+						},
+						{
+							type: 'toolCall',
+							id: 'call-2',
+							name: 'bash',
+							arguments: { command: 'rm -rf /' },
+						},
+					],
+				},
+			},
+		];
+
+		const ctx1 = createContextWithSession(true, branch, 'Allow All');
+		await expect(
+			handleToolCall(
+				{
+					type: 'tool_call',
+					toolCallId: 'call-1',
+					toolName: 'bash',
+					input: { command: 'cargo check' },
+				} as ToolCallEvent,
+				ctx1,
+				runtime,
+			),
+		).resolves.toBeUndefined();
+
+		const ctx2 = createContextWithSession(true, branch, 'Allow');
+		await expect(
+			handleToolCall(
+				{
+					type: 'tool_call',
+					toolCallId: 'call-2',
+					toolName: 'bash',
+					input: { command: 'rm -rf /' },
+				} as ToolCallEvent,
+				ctx2,
+				runtime,
+			),
+		).resolves.toEqual({
+			block: true,
+			reason: 'Command blocked by deny rules',
+		});
+		expect(ctx2.ui.confirm).not.toHaveBeenCalled();
 	});
 });

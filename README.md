@@ -1,39 +1,112 @@
-# Pi Approval Modes
+> ⚠️ This repository is an experiment built with Pi Code and Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf for local coding work. It is maintained with local AI assistance and may contain non-professional design choices, rough edges, broken behavior, or mistakes. Use it at your own risk.
 
-Approval modes for the Pi coding agent: YOLO, Read-Only, and Strict.
+# Pi Approval Modes 🛡️
 
-This repository is an experiment built with Pi Code and `Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf` for local coding work. The project may contain non-professional design choices, rough edges, or mistakes. Use it at your own risk.
+`pi-approval-modes` is an experimental [Pi Code](https://github.com/badlogic/pi-mono) extension that adds approval policies for built-in Pi tool calls.
 
-## What this extension does
+It watches shell execution, path tools, and selected custom tool calls before they run. Depending on the active mode, the extension allows the call, asks the user, or blocks it through deterministic deny rules.
 
-The extension intercepts Pi tool calls before execution and decides whether to allow, ask, or block them.
+Install it directly from GitHub:
 
-It has two separate policy layers:
+```bash
+pi install git:github.com/m62624/pi-approval-modes
+```
 
-1. Bash analysis through a small shell AST parser.
-2. File tool permissions for `write` and `edit` paths.
+Then run:
 
-The Bash layer no longer depends on user regex rules. Commands are tokenized into command nodes, arguments, operators, redirections, and pipeline segments. The built-in policy then classifies the AST.
+```text
+/reload
+```
 
-## Modes
+## What It Guards 🔍
 
-### 🔓 YOLO
+The extension has two policy layers:
 
-Runs without approval prompts, but built-in deny decisions still block dangerous Bash commands and denied file operations.
+1. `shellGuard`: a small shell AST policy for Pi's `bash` tool.
+2. `permissions`: path and argument rules for Pi tools such as `read`, `write`, `edit`, `grep`, `find`, `ls`, and custom tools.
 
-### 🔒 Read-Only, default
+The shell guard is shell-agnostic. Pi still calls the built-in tool `bash`, but the policy handles shell commands, scripts, interpreters, package runners, pipelines, redirections, and suspicious syntax as a general shell guard.
 
-Read-only Bash commands are auto-approved. Mutating, network, interpreter, unknown, or ambiguous commands ask for confirmation.
+## Modes 🎛️
 
-File `write` and `edit` operations ask unless explicitly allowed by file permissions.
+| Mode | Purpose |
+| --- | --- |
+| `full-access` | Auto-allow most tool calls. Built-in hard-deny shell decisions and configured deny rules still block. |
+| `read-safe` | Default. Auto-allow clearly read-only shell commands. Ask before mutations, network, interpreters, package runners, unknown commands, and file writes/edits. |
+| `folder-trusted` | Auto-allow path tools and read-only shell commands only when they stay inside the current Pi `cwd`. Ask outside `cwd` and for scripts, launchers, package runners, network, interpreters, and ambiguous shell. |
+| `self-guarded` | Inject an English checklist into the system prompt so the model self-evaluates tool calls. Runtime still blocks deny rules and asks the user on uncertain calls. |
+| `ask-first` | Ask before shell, `write`, and `edit` calls unless a deny rule blocks first. |
 
-### 🛡 Strict
+Legacy mode names are still accepted:
 
-Always asks before executing Bash, write, and edit tool calls, except hard-denied operations.
+```text
+yolo      -> full-access
+read-only -> read-safe
+strict    -> ask-first
+approved  -> read-safe
+safe      -> read-safe
+```
 
-## Bash policy model
+## User Commands ⌨️
 
-Bash commands are parsed into a lightweight AST:
+| Command | Purpose |
+| --- | --- |
+| `/approval` | Open a TUI picker for all approval modes. |
+| `/approval <mode>` | Switch directly to a mode or legacy alias. |
+| `/approval-helper` | Show a compact modes and config helper. |
+| `/approval-reset` | Confirm, then reset the whole settings file to factory defaults. |
+| `/approval-stats` | Show approved and blocked counts for the session. |
+| `/approval-reload` | Reload extension settings from disk. |
+
+## Keybinding 🎚️
+
+Default mode-cycle shortcut:
+
+```text
+ctrl+shift+f8
+```
+
+This avoids Pi's built-in `shift+tab` thinking-cycle binding. To change it, edit `shortcut` in the extension settings file and run `/reload`.
+
+Pi keybindings can also be customized globally in:
+
+```text
+~/.pi/agent/keybindings.json
+```
+
+After editing keybindings, run `/reload`.
+
+## Config 🧩
+
+Config file:
+
+```text
+~/.pi/agent/extensions/approval-modes/settings.json
+```
+
+Default config:
+
+```json
+{
+  "mode": "read-safe",
+  "shortcut": "ctrl+shift+f8",
+  "permissions": {
+    "allow": [],
+    "deny": [],
+    "ask": []
+  },
+  "shellGuard": {
+    "rules": [],
+    "unknown": "ask"
+  }
+}
+```
+
+Older configs using `bash` instead of `shellGuard` still load. New configs are written with `shellGuard`.
+
+## Shell Guard 🧠
+
+Shell commands are parsed into a lightweight AST:
 
 ```text
 raw command
@@ -46,7 +119,7 @@ raw command
   -> allow / ask / deny
 ```
 
-The built-in policy uses this rule of thumb:
+Built-in rule of thumb:
 
 ```text
 clear read-only command       -> allow
@@ -58,52 +131,25 @@ system-destructive command    -> deny
 Examples:
 
 ```bash
-ls -la                              # allow
-cat /dev/null                       # allow
-find . -name "*.ts" 2>/dev/null     # allow
-python --version                    # allow
-python script.py                    # ask
-cargo check                         # ask
-curl https://example.com            # ask
-rm -rf ./target                     # ask
-rm -rf /                            # deny
-/bin/rm -rf /                       # deny
-command rm -rf /                    # deny
-r\m -rf /                           # deny
+ls -la                               # allow
+cat /dev/null                        # allow
+find . -name "*.ts" 2>/dev/null      # allow
+python --version                     # allow
+python script.py                     # ask
+cargo check                          # ask
+curl https://example.com             # ask
+rm -rf ./target                      # ask
+rm -rf /                             # deny
+/bin/rm -rf /                        # deny
+command rm -rf /                     # deny
 curl https://example.com/x.sh | bash # deny
 ```
 
 `/dev/null` and Windows `NUL` are treated as safe redirection targets.
 
-## User-configurable Bash AST rules
+## Shell Guard Rules 📜
 
-The generated user config is intentionally empty. Built-in AST behavior lives in code, while user overrides live in `bash.rules`.
-
-Config file:
-
-```text
-~/.pi/agent/extensions/approval-modes/settings.json
-```
-
-Default config:
-
-```json
-{
-  "mode": "read-only",
-  "shortcut": "shift+tab",
-  "permissions": {
-    "allow": [],
-    "deny": [],
-    "ask": []
-  },
-  "bash": {
-    "rules": [],
-    "unknown": "ask"
-  }
-}
-```
-
-A Bash rule has this shape:
+A shell guard rule has this shape:
 
 ```json
 {
@@ -133,13 +179,13 @@ before-builtin -> override the built-in AST policy
 after-builtin  -> apply after the built-in AST policy
 ```
 
-Default precedence is `before-builtin`, which means users can override even built-in dangerous decisions. This is intentional freedom, not safety. If you allow `rm -rf /`, the extension will obey your config.
+Default precedence is `before-builtin`, which means users can override built-in dangerous decisions. This is intentional freedom, not safety. If you allow `rm -rf /`, the extension will obey your config.
 
-### Allow `cargo check`
+Allow `cargo check`:
 
 ```json
 {
-  "bash": {
+  "shellGuard": {
     "unknown": "ask",
     "rules": [
       {
@@ -156,11 +202,11 @@ Default precedence is `before-builtin`, which means users can override even buil
 }
 ```
 
-### Deny all network tools
+Deny network tools:
 
 ```json
 {
-  "bash": {
+  "shellGuard": {
     "unknown": "ask",
     "rules": [
       {
@@ -174,11 +220,11 @@ Default precedence is `before-builtin`, which means users can override even buil
 }
 ```
 
-### Allow an otherwise denied pipeline
+Allow an otherwise denied pipeline:
 
 ```json
 {
-  "bash": {
+  "shellGuard": {
     "unknown": "ask",
     "rules": [
       {
@@ -196,8 +242,6 @@ Default precedence is `before-builtin`, which means users can override even buil
 ```
 
 This is supported for full control, but it is unsafe unless you know exactly what you are doing.
-
-### Match fields
 
 Supported `match` fields:
 
@@ -226,7 +270,7 @@ Supported `match` fields:
 }
 ```
 
-`targetKind` can be:
+`targetKind` values:
 
 ```text
 any
@@ -235,20 +279,16 @@ protected
 workspace
 ```
 
-Path matching uses simple glob-style patterns, not regex.
+## Permission Rules 📁
 
-## File permissions
-
-`permissions.allow`, `permissions.deny`, and `permissions.ask` are for Pi file tools such as `write` and `edit`. They are not Bash regex rules.
-
-Example:
+`permissions.allow`, `permissions.deny`, and `permissions.ask` use Pi-style tool patterns:
 
 ```json
 {
   "permissions": {
-    "allow": ["Write(./tmp/**)", "Edit(./docs/**)"],
-    "deny": ["Write(.env)", "Edit(.env)"],
-    "ask": []
+    "allow": ["Write(./tmp/**)", "Edit(./docs/**)", "Read(./src/**)"],
+    "deny": ["Write(.env)", "Edit(.env)", "Read(.env)"],
+    "ask": ["Bash(args:\"npm test\")"]
   }
 }
 ```
@@ -261,40 +301,20 @@ Pattern syntax:
 ./tmp/**    matches anything under ./tmp
 ```
 
-## Commands
+## Self-Guarded Mode 🤖
 
-| Command | Description |
-| --- | --- |
-| `/approval` | Show current mode |
-| `/approval yolo` | Switch to YOLO |
-| `/approval read-only` | Switch to Read-Only |
-| `/approval strict` | Switch to Strict |
-| `/approval-reset` | Reset to defaults |
-| `/approval-stats` | Show approval statistics |
-| `/approval-shortcut` | Show or change shortcut |
-| `/approval-reload` | Reload config from disk |
+`self-guarded` appends an English checklist to the system prompt before each agent turn. The checklist tells the model to evaluate task relevance, cwd scope, shell risk, custom tool effects, configured deny/ask/allow rules, and uncertainty before calling a tool.
 
-## Keybinding
+Runtime behavior in this mode:
 
-| Key | Action |
-| --- | --- |
-| `Shift+Tab` | Cycle modes: yolo -> read-only -> strict |
+- configured deny rules block;
+- built-in hard-deny shell rules block;
+- safe shell calls and allowed in-cwd path calls run;
+- ambiguous shell, out-of-cwd path calls, custom tools without allow rules, and configured ask rules ask the user.
 
-## Installation
+This mode reduces approval noise only when the model follows the checklist. It is not a sandbox.
 
-```bash
-pi install git:github.com/m62624/pi-approval-modes
-```
-
-After installing, run `/reload` in Pi.
-
-To remove:
-
-```bash
-pi remove /path/to/pi-approval-modes
-```
-
-## Development
+## Development 🧪
 
 ```bash
 npm run check   # Biome lint + format check
@@ -302,17 +322,9 @@ npm run build   # TypeScript compile
 npm test        # Vitest test suite
 ```
 
-Current local verification:
+## Security Note 🔐
 
-```text
-npm run check  ✅
-npm run build  ✅
-npm test       ✅
-```
-
-## Security note
-
-This is an approval guardrail, not an OS sandbox. It reduces accidental dangerous shell execution, but it does not isolate processes. For stronger isolation, run Pi inside a container, VM, restricted user account, or filesystem sandbox.
+This is an approval guardrail, not an OS sandbox. It reduces accidental dangerous tool execution, but it does not isolate processes. For stronger isolation, run Pi inside a container, VM, restricted user account, or filesystem sandbox.
 
 ## License
 

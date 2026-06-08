@@ -1,11 +1,23 @@
-import type { ExtensionFactory } from '@earendil-works/pi-coding-agent';
-import { Key, type KeyId, parseKey } from '@earendil-works/pi-tui';
+import type {
+	ExtensionCommandContext,
+	ExtensionFactory,
+} from '@earendil-works/pi-coding-agent';
+import { type KeyId, parseKey } from '@earendil-works/pi-tui';
 import { ensureConfigExists, loadConfig, saveConfig } from './config/loader';
 import { DEFAULT_CONFIG } from './config/schema';
 import { EXTENSION_NAME } from './constants';
-import { MODES, modeLabel, resolveMode } from './mode';
+import {
+	formatModeList,
+	isApprovalMode,
+	MODES,
+	modeDescription,
+	modeLabel,
+	tryResolveMode,
+} from './mode';
+import { buildApprovalHelperText } from './runtime/approval-helper';
+import { buildSelfGuardedSystemPrompt } from './runtime/self-guarded-prompt';
 import { handleToolCall } from './runtime/tool-approval';
-import type { BlockedCommand, Config } from './types';
+import type { ApprovalMode, BlockedCommand, Config } from './types';
 
 const factory: ExtensionFactory = async (api) => {
 	ensureConfigExists();
@@ -34,6 +46,17 @@ const factory: ExtensionFactory = async (api) => {
 		}
 	});
 
+	api.on('before_agent_start', async (event, ctx) => {
+		if (config.mode !== 'self-guarded') return undefined;
+		return {
+			systemPrompt: buildSelfGuardedSystemPrompt({
+				basePrompt: event.systemPrompt,
+				config,
+				cwd: ctx.cwd,
+			}),
+		};
+	});
+
 	api.on('tool_call', async (event, ctx) => {
 		return handleToolCall(event, ctx, {
 			api,
@@ -45,7 +68,8 @@ const factory: ExtensionFactory = async (api) => {
 	});
 
 	// Shortcut: cycles mode
-	const shortcutId = (parseKey(config.shortcut) ?? Key.shift('tab')) as KeyId;
+	const shortcutId = (parseKey(config.shortcut) ??
+		parseKey(DEFAULT_CONFIG.shortcut)) as KeyId;
 	api.registerShortcut(shortcutId, {
 		description: 'Cycle approval mode',
 		handler: async (ctx) => {
@@ -57,43 +81,53 @@ const factory: ExtensionFactory = async (api) => {
 		},
 	});
 
-	// /approval command
-	api.registerCommand('approval', {
-		description: 'Switch approval mode (yolo|read-only|strict)',
-		handler: async (args, ctx) => {
-			if (!args) {
-				ctx.ui.notify(
-					`${modeLabel(config.mode)} — yolo|read-only|strict`,
-					'info',
-				);
-				return;
-			}
-			const mode = resolveMode(args);
-			if (mode !== 'yolo' && mode !== 'read-only' && mode !== 'strict') {
-				ctx.ui.notify(
-					`Unknown mode: ${args}. Use: yolo, read-only, strict`,
-					'error',
-				);
-				return;
-			}
-			config.mode = mode;
-			saveConfig({ ...config });
-			ctx.ui.setStatus(EXTENSION_NAME, modeLabel(config.mode));
-			ctx.ui.notify(`Mode: ${modeLabel(mode)}`, 'info');
+	const applyMode = (
+		mode: ApprovalMode,
+		ctx: ExtensionCommandContext,
+	): void => {
+		config.mode = mode;
+		saveConfig({ ...config });
+		ctx.ui.setStatus(EXTENSION_NAME, modeLabel(config.mode));
+		ctx.ui.notify(`Mode: ${modeLabel(mode)}`, 'info');
+	};
+
+	const approvalCommand = {
+		description: `Switch approval mode (${formatModeList()})`,
+		handler: async (args: string, ctx: ExtensionCommandContext) => {
+			const mode = args
+				? parseModeArg(args, (message, type) => ctx.ui.notify(message, type))
+				: await selectApprovalMode(ctx.ui, config.mode);
+			if (!mode) return;
+			applyMode(mode, ctx);
 		},
-	});
+	};
+
+	api.registerCommand('approval', approvalCommand);
 
 	// /approval-reset
 	api.registerCommand('approval-reset', {
-		description: 'Reset to defaults',
+		description: 'Reset the full approval settings file to factory defaults.',
 		handler: async (_args, ctx) => {
+			const confirmed = await ctx.ui.confirm(
+				'Reset approval settings?',
+				[
+					'This will replace the full approval-modes settings file with factory defaults.',
+					'Current mode, shortcut, permissions, and shellGuard rules will be lost.',
+				].join('\n'),
+				{ timeout: 10000 },
+			);
+			if (!confirmed) {
+				ctx.ui.notify('Approval reset cancelled.', 'info');
+				return;
+			}
 			config = {
 				...DEFAULT_CONFIG,
 				permissions: { ...DEFAULT_CONFIG.permissions },
+				shellGuard: { ...DEFAULT_CONFIG.shellGuard, rules: [] },
 			};
 			saveConfig(config);
 			ctx.ui.setStatus(EXTENSION_NAME, modeLabel(config.mode));
-			ctx.ui.notify('Reset to defaults', 'info');
+			ctx.ui.notify('Approval settings reset to factory defaults.', 'info');
 		},
 	});
 
@@ -109,19 +143,18 @@ const factory: ExtensionFactory = async (api) => {
 		},
 	});
 
-	// /approval-shortcut
-	api.registerCommand('approval-shortcut', {
-		description:
-			'Show or change shortcut (e.g. /approval-shortcut ctrl+shift+a)',
-		handler: async (args, ctx) => {
-			if (!args) {
-				ctx.ui.notify(`Current shortcut: ${config.shortcut}`, 'info');
-				return;
-			}
-			config.shortcut = args.trim();
-			saveConfig({ ...config });
-			ctx.ui.notify(`Shortcut changed to: ${args.trim()}`, 'info');
-			ctx.ui.notify('Run /reload to activate the new shortcut', 'warning');
+	// /approval-helper
+	api.registerCommand('approval-helper', {
+		description: 'Show a compact approval modes and config helper.',
+		handler: async (_args, _ctx) => {
+			api.sendMessage(
+				{
+					customType: 'approval-helper',
+					content: buildApprovalHelperText(),
+					display: true,
+				},
+				{ triggerTurn: false },
+			);
 		},
 	});
 
@@ -136,13 +169,63 @@ const factory: ExtensionFactory = async (api) => {
 	});
 };
 
+function parseModeArg(
+	args: string,
+	notify: (message: string, type?: 'info' | 'warning' | 'error') => void,
+): ApprovalMode | null {
+	const mode = tryResolveMode(args);
+	if (!mode || !isApprovalMode(mode)) {
+		notify(`Unknown mode: ${args}. Use: ${formatModeList()}`, 'error');
+		return null;
+	}
+	return mode;
+}
+
+async function selectApprovalMode(
+	ui: {
+		select(title: string, options: string[]): Promise<string | undefined>;
+		notify(message: string, type?: 'info' | 'warning' | 'error'): void;
+	},
+	currentMode: ApprovalMode,
+): Promise<ApprovalMode | null> {
+	const labels = MODES.map((mode) =>
+		approvalModeOptionLabel(mode, currentMode),
+	);
+	const choice = await ui.select('Approval mode', labels);
+	if (!choice) {
+		ui.notify('Approval mode unchanged.', 'info');
+		return null;
+	}
+	const index = labels.indexOf(choice);
+	return index >= 0 ? (MODES[index] ?? null) : null;
+}
+
+function approvalModeOptionLabel(
+	mode: ApprovalMode,
+	currentMode: ApprovalMode,
+): string {
+	const marker = mode === currentMode ? '*' : '-';
+	return `${marker} ${modeLabel(mode)} [${mode}]\n  ${modeDescription(mode)}`;
+}
+
 export default factory;
 
 // ─── Public API (re-export for external use) ───
 
-export { analyzeBashCommand } from './analysis/bash';
 export { checkPermissionRule, parseRule } from './analysis/permission-rules';
-export { MODES, modeLabel, resolveMode } from './mode';
+export {
+	analyzeBashCommand,
+	analyzeShellCommand,
+	isShellCommandScopedToCwd,
+} from './analysis/shell-guard';
+export {
+	formatModeList,
+	MODES,
+	modeDescription,
+	modeLabel,
+	resolveMode,
+	tryResolveMode,
+} from './mode';
 export { isPathPattern } from './path-pattern';
 export type {
 	ApprovalMode,
@@ -151,4 +234,7 @@ export type {
 	Config,
 	PatternRule,
 	Permissions,
+	ShellAnalysis,
+	ShellGuardPolicyConfig,
+	ShellGuardRule,
 } from './types';

@@ -1,7 +1,7 @@
 {
 	"name": "pi-approval-modes",
 	"version": "1.0.0",
-	"description": "Approval modes for pi: YOLO, Read-Only, Strict",
+	"description": "Approval and shell guard modes for pi",
 	"keywords": [
 		"pi-package"
 	],

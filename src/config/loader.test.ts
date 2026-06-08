@@ -53,14 +53,42 @@ describe('loadConfig', () => {
 
 		const result = loadConfig();
 		expect(result).toEqual({
-			mode: 'yolo',
+			mode: 'full-access',
 			shortcut: 'ctrl+shift+a',
 			permissions: { ...DEFAULT_CONFIG.permissions },
-			bash: { ...DEFAULT_CONFIG.bash, rules: [] },
+			shellGuard: { ...DEFAULT_CONFIG.shellGuard, rules: [] },
 		});
 	});
 
-	it('loads bash AST rules from file', () => {
+	it('loads shell guard AST rules from file', () => {
+		vi.mocked(existsSync).mockReturnValue(true);
+		vi.mocked(readFileSync).mockReturnValue(
+			JSON.stringify({
+				shellGuard: {
+					unknown: 'allow',
+					rules: [
+						{
+							action: 'allow',
+							match: { command: 'cargo', args: { includes: ['check'] } },
+						},
+					],
+				},
+			}),
+		);
+
+		const result = loadConfig();
+		expect(result?.shellGuard).toEqual({
+			unknown: 'allow',
+			rules: [
+				{
+					action: 'allow',
+					match: { command: 'cargo', args: { includes: ['check'] } },
+				},
+			],
+		});
+	});
+
+	it('loads legacy bash AST rules from file', () => {
 		vi.mocked(existsSync).mockReturnValue(true);
 		vi.mocked(readFileSync).mockReturnValue(
 			JSON.stringify({
@@ -77,7 +105,7 @@ describe('loadConfig', () => {
 		);
 
 		const result = loadConfig();
-		expect(result?.bash).toEqual({
+		expect(result?.shellGuard).toEqual({
 			unknown: 'allow',
 			rules: [
 				{
@@ -88,22 +116,22 @@ describe('loadConfig', () => {
 		});
 	});
 
-	it('resolves aliases (approved → read-only)', () => {
+	it('resolves aliases (approved → read-safe)', () => {
 		vi.mocked(existsSync).mockReturnValue(true);
 		vi.mocked(readFileSync).mockReturnValue(
 			JSON.stringify({ mode: 'approved' }),
 		);
 
 		const result = loadConfig();
-		expect(result?.mode).toBe('read-only');
+		expect(result?.mode).toBe('read-safe');
 	});
 
-	it('resolves aliases (safe → read-only)', () => {
+	it('resolves aliases (safe → read-safe)', () => {
 		vi.mocked(existsSync).mockReturnValue(true);
 		vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ mode: 'safe' }));
 
 		const result = loadConfig();
-		expect(result?.mode).toBe('read-only');
+		expect(result?.mode).toBe('read-safe');
 	});
 });
 
@@ -115,7 +143,7 @@ describe('saveConfig', () => {
 	it('writes config to settings file', () => {
 		saveConfig({
 			...DEFAULT_CONFIG,
-			mode: 'strict',
+			mode: 'ask-first',
 		});
 
 		expect(mkdirSync).toHaveBeenCalledWith(

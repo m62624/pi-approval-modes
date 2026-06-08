@@ -5,8 +5,12 @@ import type {
 	ToolCallEvent,
 	ToolCallEventResult,
 } from '@earendil-works/pi-coding-agent';
-import { analyzeBashCommand } from '../analysis/bash';
 import { checkPermissionRule } from '../analysis/permission-rules';
+import {
+	analyzeShellCommand,
+	isShellCommandScopedToCwd,
+} from '../analysis/shell-guard';
+import { isPathInsideRoot } from '../path-scope';
 import type { BlockedCommand, Config } from '../types';
 
 type ToolCallResult = ToolCallEventResult | undefined;
@@ -48,7 +52,7 @@ function sendDenySteer(runtime: ApprovalRuntime, command: string): void {
 	runtime.api.sendMessage(
 		{
 			customType: 'blocked-command',
-			content: `⛔ Bash command blocked: ${command}\n\nNote: this command was blocked by deny rules.\n\nWhy did you choose this command? Is it really the best approach?\n\nIf yes — explain to the user how to run it manually in their shell.\nOtherwise — suggest an alternative.`,
+			content: `⛔ Shell command blocked: ${command}\n\nNote: this command was blocked by deny rules.\n\nWhy did you choose this command? Is it really the best approach?\n\nIf yes — explain to the user how to run it manually in their shell.\nOtherwise — suggest an alternative.`,
 			display: false,
 		},
 		{
@@ -157,8 +161,8 @@ function getBatchContext(
 						const input = (tc.arguments ?? {}) as Record<string, unknown>;
 						let detail = '';
 						if (toolName === 'bash') {
-							detail = `bash: ${input.command ?? ''}`;
-						} else if (toolName === 'write' || toolName === 'edit') {
+							detail = `shell: ${input.command ?? ''}`;
+						} else if (isPathToolName(toolName)) {
 							detail = `${toolName} ${input.path ?? 'unknown'}`;
 						} else {
 							detail = `${toolName}: ${JSON.stringify(input)}`;
@@ -178,7 +182,33 @@ function getBatchContext(
 	};
 }
 
-async function handleBashToolCall(
+function isPathToolName(toolName: string): boolean {
+	return (
+		toolName === 'read' ||
+		toolName === 'write' ||
+		toolName === 'edit' ||
+		toolName === 'grep' ||
+		toolName === 'find' ||
+		toolName === 'ls'
+	);
+}
+
+function isMutatingPathToolName(toolName: string): boolean {
+	return toolName === 'write' || toolName === 'edit';
+}
+
+function pathToolPath(input: Record<string, unknown>): string | undefined {
+	return typeof input.path === 'string' ? input.path : undefined;
+}
+
+function isPathToolInsideCwd(
+	input: Record<string, unknown>,
+	ctx: ExtensionContext,
+): boolean {
+	return isPathInsideRoot(ctx.cwd, pathToolPath(input), ctx.cwd);
+}
+
+async function handleShellToolCall(
 	event: ToolCallEvent,
 	ctx: ExtensionContext,
 	runtime: ApprovalRuntime,
@@ -187,30 +217,11 @@ async function handleBashToolCall(
 	const command = (input.command as string) ?? '';
 	const batch = getBatchContext(event, ctx);
 
-	// 1. Auto-deny check if Deny All was selected previously in this batch
-	if (
-		batch.assistantEntry &&
-		runtime.sessionState.deniedBatchId === batch.assistantEntry.id
-	) {
-		rememberApproved(runtime, event.toolCallId);
-		rememberBlocked(runtime, 'bash', `bash: ${command} (batch denied)`);
-		return { block: true, reason: 'User denied all tool calls in this batch' };
-	}
-
-	// 2. Auto-allow check if Allow All was selected previously in this batch
-	if (
-		batch.assistantEntry &&
-		runtime.sessionState.approvedBatchId === batch.assistantEntry.id
-	) {
-		rememberApproved(runtime, event.toolCallId);
-		return undefined;
-	}
-
-	const analysis = analyzeBashCommand(command, runtime.config);
+	const analysis = analyzeShellCommand(command, runtime.config);
 
 	if (analysis === 'dangerous') {
 		rememberApproved(runtime, event.toolCallId);
-		rememberBlocked(runtime, 'bash', `bash: ${command}`);
+		rememberBlocked(runtime, 'bash', `shell: ${command}`);
 		sendDenySteer(runtime, command);
 		if (batch.assistantEntry) {
 			runtime.sessionState.deniedBatchId = batch.assistantEntry.id;
@@ -219,13 +230,44 @@ async function handleBashToolCall(
 	}
 
 	if (
-		runtime.config.mode === 'yolo' ||
+		batch.assistantEntry &&
+		runtime.sessionState.deniedBatchId === batch.assistantEntry.id
+	) {
+		rememberApproved(runtime, event.toolCallId);
+		rememberBlocked(runtime, 'bash', `shell: ${command} (batch denied)`);
+		return { block: true, reason: 'User denied all tool calls in this batch' };
+	}
+
+	if (
+		batch.assistantEntry &&
+		runtime.sessionState.approvedBatchId === batch.assistantEntry.id
+	) {
+		rememberApproved(runtime, event.toolCallId);
+		return undefined;
+	}
+
+	if (
+		runtime.config.mode === 'full-access' ||
 		runtime.approvedCalls.has(event.toolCallId)
 	) {
 		return undefined;
 	}
 
-	if (runtime.config.mode === 'read-only' && analysis === 'safe') {
+	if (runtime.config.mode === 'read-safe' && analysis === 'safe') {
+		rememberApproved(runtime, event.toolCallId);
+		return undefined;
+	}
+
+	if (
+		runtime.config.mode === 'folder-trusted' &&
+		analysis === 'safe' &&
+		isShellCommandScopedToCwd(command, ctx.cwd)
+	) {
+		rememberApproved(runtime, event.toolCallId);
+		return undefined;
+	}
+
+	if (runtime.config.mode === 'self-guarded' && analysis === 'safe') {
 		rememberApproved(runtime, event.toolCallId);
 		return undefined;
 	}
@@ -234,8 +276,8 @@ async function handleBashToolCall(
 		batch.total > 1 && batch.currentIndex !== -1
 			? ` [${batch.currentIndex + 1}/${batch.total}]`
 			: '';
-	const title = `Approve bash command${titleSuffix}`;
-	const summary = `bash: ${command}${batch.formattedRemaining}`;
+	const title = `Approve shell command${titleSuffix}`;
+	const summary = `shell: ${command}${batch.formattedRemaining}`;
 
 	const choice = await askApproval(ctx, title, summary, batch.total > 1);
 
@@ -249,44 +291,21 @@ async function handleBashToolCall(
 
 	// For 'deny' or 'deny-all'
 	rememberApproved(runtime, event.toolCallId);
-	rememberBlocked(runtime, 'bash', `bash: ${command}`);
+	rememberBlocked(runtime, 'bash', `shell: ${command}`);
 	if (choice === 'deny-all' && batch.assistantEntry) {
 		runtime.sessionState.deniedBatchId = batch.assistantEntry.id;
 	}
 	return { block: true, reason: 'User denied approval' };
 }
 
-async function handleFileToolCall(
+async function handlePathToolCall(
 	event: ToolCallEvent,
 	ctx: ExtensionContext,
 	runtime: ApprovalRuntime,
 ): Promise<ToolCallResult> {
 	const input = event.input as Record<string, unknown>;
-	const filePath = (input.path as string) ?? 'unknown';
+	const filePath = pathToolPath(input) ?? '.';
 	const batch = getBatchContext(event, ctx);
-
-	// 1. Auto-deny check if Deny All was selected previously in this batch
-	if (
-		batch.assistantEntry &&
-		runtime.sessionState.deniedBatchId === batch.assistantEntry.id
-	) {
-		rememberApproved(runtime, event.toolCallId);
-		rememberBlocked(
-			runtime,
-			event.toolName,
-			`${event.toolName} ${filePath} (batch denied)`,
-		);
-		return { block: true, reason: 'User denied all tool calls in this batch' };
-	}
-
-	// 2. Auto-allow check if Allow All was selected previously in this batch
-	if (
-		batch.assistantEntry &&
-		runtime.sessionState.approvedBatchId === batch.assistantEntry.id
-	) {
-		rememberApproved(runtime, event.toolCallId);
-		return undefined;
-	}
 
 	const denyResult = checkPermissionRule(
 		runtime.config.permissions.deny,
@@ -303,13 +322,51 @@ async function handleFileToolCall(
 	}
 
 	if (
-		runtime.config.mode === 'yolo' ||
+		batch.assistantEntry &&
+		runtime.sessionState.deniedBatchId === batch.assistantEntry.id
+	) {
+		rememberApproved(runtime, event.toolCallId);
+		rememberBlocked(
+			runtime,
+			event.toolName,
+			`${event.toolName} ${filePath} (batch denied)`,
+		);
+		return { block: true, reason: 'User denied all tool calls in this batch' };
+	}
+
+	if (
+		batch.assistantEntry &&
+		runtime.sessionState.approvedBatchId === batch.assistantEntry.id
+	) {
+		rememberApproved(runtime, event.toolCallId);
+		return undefined;
+	}
+
+	const askResult = checkPermissionRule(
+		runtime.config.permissions.ask,
+		{ toolName: event.toolName },
+		input,
+	);
+	const mustAsk = askResult === 'allowed';
+	const isMutatingPathTool = isMutatingPathToolName(event.toolName);
+
+	if (
+		!mustAsk &&
+		!isMutatingPathTool &&
+		runtime.config.mode !== 'folder-trusted' &&
+		runtime.config.mode !== 'self-guarded'
+	) {
+		return undefined;
+	}
+
+	if (
+		(!mustAsk && runtime.config.mode === 'full-access') ||
 		runtime.approvedCalls.has(event.toolCallId)
 	) {
 		return undefined;
 	}
 
-	if (runtime.config.mode !== 'strict') {
+	if (!mustAsk && runtime.config.mode !== 'ask-first') {
 		const permResult = checkPermissionRule(
 			runtime.config.permissions.allow,
 			{ toolName: event.toolName },
@@ -321,8 +378,17 @@ async function handleFileToolCall(
 		}
 	}
 
-	const fileOpSummary =
-		event.toolName === 'write' ? `write ${filePath}` : `edit ${filePath}`;
+	if (
+		!mustAsk &&
+		(runtime.config.mode === 'folder-trusted' ||
+			runtime.config.mode === 'self-guarded') &&
+		isPathToolInsideCwd(input, ctx)
+	) {
+		rememberApproved(runtime, event.toolCallId);
+		return undefined;
+	}
+
+	const fileOpSummary = `${event.toolName} ${filePath}`;
 
 	const titleSuffix =
 		batch.total > 1 && batch.currentIndex !== -1
@@ -350,18 +416,97 @@ async function handleFileToolCall(
 	return { block: true, reason: 'User denied approval' };
 }
 
+async function handleGenericToolCall(
+	event: ToolCallEvent,
+	ctx: ExtensionContext,
+	runtime: ApprovalRuntime,
+): Promise<ToolCallResult> {
+	if (runtime.config.mode !== 'self-guarded') return undefined;
+	if (runtime.approvedCalls.has(event.toolCallId)) return undefined;
+
+	const batch = getBatchContext(event, ctx);
+	const input = event.input as Record<string, unknown>;
+	const denyResult = checkPermissionRule(
+		runtime.config.permissions.deny,
+		{ toolName: event.toolName },
+		input,
+		{ deny: true },
+	);
+	if (denyResult === 'blocked') {
+		rememberApproved(runtime, event.toolCallId);
+		if (batch.assistantEntry) {
+			runtime.sessionState.deniedBatchId = batch.assistantEntry.id;
+		}
+		return { block: true, reason: `Blocked by deny rule: ${event.toolName}` };
+	}
+
+	if (
+		batch.assistantEntry &&
+		runtime.sessionState.deniedBatchId === batch.assistantEntry.id
+	) {
+		rememberApproved(runtime, event.toolCallId);
+		rememberBlocked(
+			runtime,
+			event.toolName,
+			`${event.toolName} (batch denied)`,
+		);
+		return { block: true, reason: 'User denied all tool calls in this batch' };
+	}
+
+	if (
+		batch.assistantEntry &&
+		runtime.sessionState.approvedBatchId === batch.assistantEntry.id
+	) {
+		rememberApproved(runtime, event.toolCallId);
+		return undefined;
+	}
+
+	const allowResult = checkPermissionRule(
+		runtime.config.permissions.allow,
+		{ toolName: event.toolName },
+		input,
+	);
+	if (allowResult === 'allowed') {
+		rememberApproved(runtime, event.toolCallId);
+		return undefined;
+	}
+
+	const titleSuffix =
+		batch.total > 1 && batch.currentIndex !== -1
+			? ` [${batch.currentIndex + 1}/${batch.total}]`
+			: '';
+	const title = `Approve tool call${titleSuffix}`;
+	const summary = `${event.toolName}: ${JSON.stringify(input)}${batch.formattedRemaining}`;
+	const choice = await askApproval(ctx, title, summary, batch.total > 1);
+
+	if (choice === 'allow' || choice === 'allow-all') {
+		rememberApproved(runtime, event.toolCallId);
+		if (choice === 'allow-all' && batch.assistantEntry) {
+			runtime.sessionState.approvedBatchId = batch.assistantEntry.id;
+		}
+		return undefined;
+	}
+
+	rememberApproved(runtime, event.toolCallId);
+	rememberBlocked(runtime, event.toolName, summary);
+	if (choice === 'deny-all' && batch.assistantEntry) {
+		runtime.sessionState.deniedBatchId = batch.assistantEntry.id;
+	}
+	return { block: true, reason: 'User denied approval' };
+}
+
 export async function handleToolCall(
 	event: ToolCallEvent,
 	ctx: ExtensionContext,
 	runtime: ApprovalRuntime,
 ): Promise<ToolCallResult> {
 	if (event.toolName === 'bash') {
-		return handleBashToolCall(event, ctx, runtime);
+		return handleShellToolCall(event, ctx, runtime);
 	}
 
-	if (event.toolName === 'write' || event.toolName === 'edit') {
-		return handleFileToolCall(event, ctx, runtime);
+	if (isPathToolName(event.toolName)) {
+		return handlePathToolCall(event, ctx, runtime);
 	}
 
-	return undefined;
+	return handleGenericToolCall(event, ctx, runtime);
 }
