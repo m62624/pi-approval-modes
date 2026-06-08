@@ -56,7 +56,6 @@ safe      -> read-safe
 | `/approval-helper` | Show a compact modes and config helper. |
 | `/approval-reset` | Confirm, then reset the whole settings file to factory defaults. |
 | `/approval-stats` | Show approved and blocked counts for the session. |
-| `/approval-reload` | Reload extension settings from disk. |
 
 ## Keybinding 🎚️
 

@@ -25,7 +25,6 @@ export function buildApprovalHelperText(input?: { agentDir?: string }): string {
 		'- /approval: pick a mode.',
 		`- /approval <mode>: switch directly. Modes: ${MODES.join(', ')}.`,
 		'- /approval-reset: confirm, then reset the whole settings file to factory defaults.',
-		'- /approval-reload: reload settings.json from disk.',
 		'',
 		'Config:',
 		`- settings: ${paths.settings}`,
